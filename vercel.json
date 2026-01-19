@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "packages/app/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "packages/api/src/main.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "packages/api/src/main.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "packages/app/$1"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/scheduler/expire-posts",
+      "schedule": "1 0 * * *"
+    }
+  ]
+}
