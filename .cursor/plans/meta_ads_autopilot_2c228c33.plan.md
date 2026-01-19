@@ -1,6 +1,6 @@
 ---
 name: Meta Ads Autopilot
-overview: Monolit z dwoma projektami (NestJS API + React App) hostowany na Vercel, używający Supabase jako bazy danych i OpenRouter do kategoryzacji postów przez LLM.
+overview: Monolit z dwoma projektami (NestJS API + React App) hostowany na Vercel, używający Supabase jako bazy danych i OpenRouter do kategoryzacji postów przez LLM. System automatycznie kategoryzuje posty restauracji i tworzy reklamy Meta Ads z odpowiednim targetowaniem.
 todos:
   - id: setup-monorepo
     content: Inicjalizacja monorepo (pnpm workspaces) + NestJS API + React Vite App
@@ -11,7 +11,7 @@ todos:
     dependencies:
       - setup-monorepo
   - id: meta-api-service
-    content: Meta API Service - createCampaign, createAdSet, createCreative, createAd, updateStatus
+    content: Meta API Service - createCampaign, createAdSet, createCreative, createAd, updateStatus, deleteAdSet, deleteAd
     status: completed
     dependencies:
       - setup-monorepo
@@ -34,7 +34,7 @@ todos:
       - meta-api-service
       - setup-supabase
   - id: react-ui
-    content: React UI - Dashboard, Restaurant Form, Ad Set Config, Posts Log
+    content: React UI - Dashboard, Restaurants, Ad Sets, Events, Posts
     status: completed
     dependencies:
       - setup-supabase
@@ -58,9 +58,7 @@ meta-ads-autopilot/
 │   │   ├── src/
 │   │   │   ├── modules/
 │   │   │   │   ├── restaurants/
-│   │   │   │   ├── campaigns/
 │   │   │   │   ├── ad-sets/
-│   │   │   │   ├── ads/
 │   │   │   │   ├── posts/
 │   │   │   │   ├── webhook/
 │   │   │   │   └── scheduler/
@@ -73,208 +71,273 @@ meta-ads-autopilot/
 │   └── app/                 # React + Vite
 │       ├── src/
 │       │   ├── pages/
-│       │   │   ├── Dashboard.tsx
-│       │   │   ├── Restaurants.tsx
-│       │   │   └── AdSetConfig.tsx
-│       │   └── components/
+│       │   │   ├── Dashboard.tsx      # Przegląd restauracji
+│       │   │   ├── Restaurants.tsx    # CRUD restauracji
+│       │   │   ├── AdSetConfig.tsx    # Kategorie + aktywne ad sety
+│       │   │   ├── Events.tsx         # Zarządzanie wydarzeniami
+│       │   │   └── PostsLog.tsx       # Lista reklam
+│       │   ├── api.ts
+│       │   ├── types.ts
+│       │   └── styles.css
 │       └── package.json
+├── supabase/
+│   └── schema.sql
 ├── package.json             # Workspace root
+├── pnpm-workspace.yaml
 └── vercel.json
 ```
 
 ## Schemat Bazy Danych (Supabase)
 
-```mermaid
-erDiagram
-    restaurants {
-        uuid id PK
-        text name
-        text code "2-4 letter abbreviation"
-        text website
-        text area "S-CITY|M-CITY|L-CITY"
-        text fame "Neutral|Hot|Epic"
-        int delivery_radius_km
-        jsonb budget_priorities "Event:30,Lunch:20..."
-        text facebook_page_id
-        text instagram_account_id
-        text meta_campaign_id
-        jsonb location "lat,lng,address"
-        timestamp created_at
-    }
-    
-    ad_set_categories {
-        uuid id PK
-        text code "EV_ALL|LU_ONS|..."
-        text name
-        text parent_category "Event|Lunch|Promo|Product|Brand|Info"
-        jsonb targeting_template
-        boolean requires_delivery
-        boolean is_event_type
-        timestamp created_at
-    }
-    
-    ad_sets {
-        uuid id PK
-        uuid restaurant_id FK
-        uuid category_id FK
-        text meta_ad_set_id
-        text name "BF_EV_ALL_01"
-        int version
-        int ads_count
-        text status "ACTIVE|PAUSED"
-        text event_identifier "nullable - for event ad sets"
-        timestamp created_at
-    }
-    
-    posts {
-        uuid id PK
-        uuid restaurant_id FK
-        uuid ad_set_id FK
-        text meta_post_id
-        text meta_ad_id
-        text meta_creative_id
-        text content
-        text category_code
-        date event_date "nullable"
-        date promotion_end_date
-        text status "PENDING|ACTIVE|PAUSED|EXPIRED"
-        jsonb ayrshare_payload
-        timestamp created_at
-    }
-    
-    events {
-        uuid id PK
-        uuid restaurant_id FK
-        uuid ad_set_id FK
-        text identifier "walentynki-2026|koncert-krawczyk"
-        text name
-        date event_date
-        timestamp created_at
-    }
-    
-    restaurants ||--o{ ad_sets : has
-    restaurants ||--o{ posts : has
-    restaurants ||--o{ events : has
-    ad_set_categories ||--o{ ad_sets : defines
-    ad_sets ||--o{ posts : contains
-    ad_sets ||--o| events : tracks
+```sql
+-- Restaurants
+CREATE TABLE restaurants (
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  code TEXT NOT NULL UNIQUE,        -- 2-4 literowy skrót (np. "BF")
+  website TEXT,                      -- URL strony (używany jako CTA w reklamach)
+  area TEXT NOT NULL,                -- S-CITY | M-CITY | L-CITY
+  fame TEXT DEFAULT 'Neutral',       -- Neutral | Hot | Epic
+  delivery_radius_km INTEGER DEFAULT 5,
+  budget_priorities JSONB,           -- { Event: 20, Lunch: 20, ... }
+  facebook_page_id TEXT NOT NULL,
+  instagram_account_id TEXT,         -- Opcjonalne (null = brak IG)
+  meta_campaign_id TEXT,             -- ID kampanii w Meta
+  location JSONB                     -- { lat, lng, address }
+);
+
+-- Ad Set Categories (predefiniowane szablony)
+CREATE TABLE ad_set_categories (
+  id UUID PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,         -- EV_ALL, LU_ONS, PR_DEL_CYK, etc.
+  name TEXT NOT NULL,
+  parent_category TEXT NOT NULL,     -- Event | Lunch | Promo | Product | Brand | Info
+  targeting_template JSONB,          -- { age_min, age_max, genders, interests }
+  requires_delivery BOOLEAN DEFAULT FALSE,
+  is_event_type BOOLEAN DEFAULT FALSE
+);
+
+-- Ad Sets (instancje per restauracja)
+CREATE TABLE ad_sets (
+  id UUID PRIMARY KEY,
+  restaurant_id UUID REFERENCES restaurants(id),
+  category_id UUID REFERENCES ad_set_categories(id),
+  meta_ad_set_id TEXT,               -- ID w Meta
+  name TEXT NOT NULL,                -- np. "BF_EV_ALL_01"
+  version INTEGER DEFAULT 1,
+  ads_count INTEGER DEFAULT 0,       -- Max 50
+  status TEXT DEFAULT 'ACTIVE',
+  event_identifier TEXT              -- Tylko dla eventów
+);
+
+-- Posts (reklamy)
+CREATE TABLE posts (
+  id UUID PRIMARY KEY,
+  restaurant_id UUID REFERENCES restaurants(id),
+  ad_set_id UUID REFERENCES ad_sets(id),
+  meta_post_id TEXT NOT NULL UNIQUE,  -- ID posta na FB
+  meta_ad_id TEXT,                    -- ID reklamy w Meta
+  meta_creative_id TEXT,
+  content TEXT,
+  category_code TEXT,                 -- Przypisana kategoria
+  event_date DATE,
+  promotion_end_date DATE,
+  status TEXT DEFAULT 'PENDING'       -- PENDING | ACTIVE | PAUSED | EXPIRED
+);
+
+-- Events (unikalne wydarzenia)
+CREATE TABLE events (
+  id UUID PRIMARY KEY,
+  restaurant_id UUID REFERENCES restaurants(id),
+  ad_set_id UUID REFERENCES ad_sets(id),
+  identifier TEXT NOT NULL,           -- np. "walentynki-2026"
+  name TEXT NOT NULL,
+  event_date DATE NOT NULL,
+  UNIQUE(restaurant_id, identifier)
+);
 ```
+
+## Kategorie Ad Setów
+
+| Kod | Nazwa | Typ | Delivery |
+
+|-----|-------|-----|----------|
+
+| EV_ALL | Event > Wszyscy | Event | ❌ |
+
+| EV_FAM | Event > Rodzina | Event | ❌ |
+
+| EV_PAR | Event > Para | Event | ❌ |
+
+| EV_SEN | Event > Senior | Event | ❌ |
+
+| LU_ONS | Lunch > On-site | Lunch | ❌ |
+
+| LU_DEL | Lunch > Delivery | Lunch | ✅ |
+
+| PR_ONS_CYK | Promo > On-site > Cykliczna | Promo | ❌ |
+
+| PR_ONS_JED | Promo > On-site > Jednorazowa | Promo | ❌ |
+
+| PR_DEL_CYK | Promo > Delivery > Cykliczna | Promo | ✅ |
+
+| PR_DEL_JED | Promo > Delivery > Jednorazowa | Promo | ✅ |
+
+| PD_ONS | Product > On-site | Product | ❌ |
+
+| PD_DEL | Product > Delivery | Product | ✅ |
+
+| BRAND | Brand | Brand | ❌ |
+
+| INFO | Info | Info | ❌ |
 
 ## Flow Przetwarzania Postów
 
-```mermaid
-flowchart TD
-    A[Webhook: Ayrshare Post] --> B[Zapisz do posts - status PENDING]
-    B --> C[LLM: Kategoryzacja]
-    C --> D{Kategoria?}
-    
-    D -->|Event| E[Wygeneruj event_identifier]
-    E --> F{Event istnieje?}
-    F -->|Tak| G[Użyj istniejącego ad_set]
-    F -->|Nie| H[Stwórz nowy ad_set + event]
-    
-    D -->|Non-Event| I{Ad Set istnieje?}
-    I -->|Tak| J{Ads count < 50?}
-    I -->|Nie| K[Stwórz ad_set v01]
-    J -->|Tak| G
-    J -->|Nie| L[Stwórz ad_set v02+]
-    
-    G --> M[Meta API: Create Creative]
-    H --> M
-    K --> M
-    L --> M
-    
-    M --> N[Meta API: Create Ad]
-    N --> O[Update post status: ACTIVE]
+```
+1. POST na webhook (lub ręczne dodanie)
+   ↓
+2. Walidacja (Post ID, treść, restauracja ma kampanię?)
+   ↓
+3. [KROK 1] Tworzenie Creative w Meta (sprawdza czy post może być promowany)
+   ↓ (jeśli błąd → przerwij, nie twórz ad setu)
+4. [KROK 2] Kategoryzacja LLM (OpenRouter/Claude)
+   → category, event_date, event_identifier, promotion_end_date
+   ↓
+5. [KROK 3] Znajdź lub stwórz Ad Set
+   - Dla eventów: szukaj po event_identifier
+   - Dla innych: szukaj wolny ad set (ads_count < 50)
+   - Jeśli brak: stwórz nowy (z targetingiem z szablonu kategorii)
+   ↓
+6. [KROK 4] Tworzenie Reklamy w Meta
+   ↓
+7. [KROK 5] Zapis do bazy (status: ACTIVE)
 ```
 
-## Kluczowe Komponenty
+## Meta API Service
 
-### 1. Meta API Service
+### Kampanie
 
-Bezpośrednie wywołania Graph API (bez SDK):
+- **Cel**: `OUTCOME_TRAFFIC` (nie wymaga pixela!)
+- **Optymalizacja**: `LINK_CLICKS`
+- **Payer**: `JETLABS SP Z O O` (DSA compliance)
 
-- `createCampaign(restaurantName)` - OUTCOME_ENGAGEMENT objective
-- `createAdSet(campaignId, name, targeting, dailyBudget)`
-- `createCreative(pageId, postId)` - użycie istniejącego posta
-- `createAd(adSetId, creativeId, name)`
-- `updateAdStatus(adId, status)` - ACTIVE/PAUSED
-- `getAudienceSize(targeting)` - estimated reach
-
-### 2. LLM Service (OpenRouter)
-
-Prompt do kategoryzacji:
-
-```
-Analizujesz post restauracji. Wyciągnij:
-1. category: jedno z [EV_ALL|EV_FAM|EV_PAR|EV_SEN|LU_ONS|LU_DEL|PR_ONS_CYK|PR_ONS_JED|PR_DEL_CYK|PR_DEL_JED|PD_ONS|PD_DEL|BRAND|INFO]
-2. event_date: jeśli to wydarzenie (format YYYY-MM-DD)
-3. event_identifier: jeśli event - krótki slug (np. "walentynki-2026")
-4. promotion_end_date: sugerowana data końca promocji (max 60 dni od dziś, dla eventów = event_date)
-
-Post: {content}
-Odpowiedz jako JSON.
-```
-
-### 3. Scheduler Service
-
-- Cron job: codziennie o 00:01
-- Endpoint: `POST /api/scheduler/expire-posts` (manual trigger z UI)
-- Query: `SELECT * FROM posts WHERE promotion_end_date <= TODAY AND status = 'ACTIVE'`
-- Dla każdego: `updateAdStatus(meta_ad_id, 'PAUSED')`
-
-### 4. Targeting Templates
+### Tworzenie Creative
 
 ```typescript
-const targetingTemplates = {
-  base: (restaurant) => ({
-    geo_locations: {
-      custom_locations: [{
-        latitude: restaurant.location.lat,
-        longitude: restaurant.location.lng,
-        radius: restaurant.area === 'S-CITY' ? 5 : 
-                restaurant.area === 'M-CITY' ? 10 : 15,
-        distance_unit: 'kilometer'
-      }]
-    },
-    age_min: 18,
-    age_max: 65
-  }),
-  delivery: (restaurant) => ({
-    ...base(restaurant),
-    geo_locations: {
-      custom_locations: [{
-        ...base.geo_locations.custom_locations[0],
-        radius: restaurant.delivery_radius_km
-      }]
-    }
-  }),
-  event_family: { flexible_spec: [{ interests: [{ id: '6003139266461', name: 'Family' }] }] },
-  event_couple: { age_min: 21, age_max: 45, flexible_spec: [{ interests: [{ id: '6003248649975', name: 'Dating' }] }] },
-  event_senior: { age_min: 55, age_max: 65 }
-}
+createCreative({
+  pageId: string,
+  postId: string,
+  websiteUrl?: string  // Dodaje CTA "LEARN_MORE" z linkiem
+})
+```
+
+### Targeting
+
+```typescript
+buildTargeting({
+  lat, lng, radiusKm,      // Lokalizacja restauracji
+  ageMin, ageMax,          // Z szablonu kategorii (default: 18-65)
+  genders,                 // [] = wszyscy, [1] = M, [2] = K
+  interests,               // [{ id, name }] z Meta
+  includeInstagram         // true jeśli restauracja ma IG
+})
+```
+
+### Dostępne metody
+
+- `createCampaign(restaurantName)` → campaign_id
+- `createAdSet({ campaignId, name, targeting, dailyBudget, beneficiary, pageId })` → adset_id
+- `createCreative({ pageId, postId, websiteUrl })` → creative_id
+- `createAd({ adSetId, creativeId, name })` → ad_id
+- `updateAdStatus(adId, 'ACTIVE' | 'PAUSED')`
+- `deleteAdSet(adSetId)` → usuwa z Meta
+- `deleteAd(adId)` → usuwa z Meta
+
+## LLM Service (OpenRouter)
+
+**Model**: `anthropic/claude-3-haiku`
+
+**Prompt**:
+
+```
+Jesteś ekspertem od kategoryzacji postów restauracji dla kampanii reklamowych.
+
+Analizujesz post i wyciągasz:
+1. category - jedna z kategorii: EV_ALL, EV_FAM, EV_PAR, EV_SEN, LU_ONS, LU_DEL, 
+   PR_ONS_CYK, PR_ONS_JED, PR_DEL_CYK, PR_DEL_JED, PD_ONS, PD_DEL, BRAND, INFO
+
+2. event_date - data wydarzenia (YYYY-MM-DD), tylko dla EV_*
+
+3. event_identifier - unikalny slug wydarzenia (np. "walentynki-2026"), tylko dla EV_*
+
+4. promotion_end_date - sugerowana data końca promocji:
+   - Dla wydarzeń: data wydarzenia
+   - Dla promocji jednorazowych: max 14 dni
+   - Dla promocji cyklicznych: max 60 dni
+   - Dla produktów/brand/info: max 30 dni
+
+Odpowiedz TYLKO jako JSON.
 ```
 
 ## UI (React)
 
-### Strony:
+### 1. Dashboard
 
-1. **Dashboard** - lista restauracji + status postów
-2. **Restaurant Form** - dodawanie/edycja restauracji
+- Statystyki: restauracje, ad sety, reklamy, aktywne
+- Tabela restauracji z akcjami (usuń, utwórz kampanię)
 
-   - Name, Code, Website
-   - Area (S/M/L-CITY), Fame
-   - Location (lat/lng + adres)
-   - Delivery radius
-   - Facebook Page ID, Instagram Account ID
-   - Budget priorities (% per kategoria)
+### 2. Restauracje
 
-3. **Ad Set Config** - edycja kategorii ad setów
+- Formularz dodawania restauracji
+- Pola: nazwa, kod, website, region, fame, FB Page ID, IG (opcjonalne), lokalizacja
 
-   - Lista kategorii z targeting templates
-   - Możliwość edycji targetingu per kategoria
+### 3. Ad Sety
 
-4. **Posts Log** - historia przetworzonych postów
+- **Szablony kategorii** - edycja targetowania per kategoria:
+        - Wiek (min/max)
+        - Płeć (M/K/wszyscy)
+        - Zainteresowania (lista checkboxów z predefiniowanymi)
+- **Lista aktywnych ad setów** - z filtrem po restauracji
+- Przycisk usuwania (usuwa z Meta + bazy)
+
+### 4. Wydarzenia
+
+- Lista wydarzeń z podziałem na nadchodzące/przeszłe
+- Kolumny: restauracja, nazwa, identyfikator, data, ad set, liczba reklam
+- Filtr po restauracji
+
+### 5. Reklamy (Posty)
+
+- Formularz ręcznego dodawania (restauracja, Post ID, treść)
+- Lista reklam z filtrem po restauracji
+- Kolumny: restauracja, Post ID, kategoria, Ad Set, status, data końca
+- Akcje: Pauza/Włącz, Usuń (usuwa z Meta + bazy), Ponów (dla PENDING)
+
+## Predefiniowane Zainteresowania Meta
+
+```typescript
+const RESTAURANT_INTERESTS = [
+  { id: '6003384248805', name: 'Jedzenie' },
+  { id: '6003107902433', name: 'Restauracje' },
+  { id: '6003139266461', name: 'Fast food' },
+  { id: '6003348604980', name: 'Fine dining' },
+  { id: '6003295028191', name: 'Pizza' },
+  { id: '6003327847662', name: 'Kawa' },
+  { id: '6003629569625', name: 'Wino' },
+  { id: '6003548707756', name: 'Piwo' },
+  { id: '6003020834693', name: 'Kuchnia włoska' },
+  { id: '6003268718254', name: 'Kuchnia azjatycka' },
+  { id: '6003277229969', name: 'Gotowanie' },
+  { id: '6003397425735', name: 'Zdrowe odżywianie' },
+  { id: '6003012317397', name: 'Weganizm' },
+  { id: '6003476182657', name: 'Rodzina' },
+  { id: '6003305057498', name: 'Rodzicielstwo' },
+  { id: '6003139892773', name: 'Randki' },
+  { id: '6003384235085', name: 'Życie nocne' },
+  { id: '6003107408097', name: 'Podróże' },
+  { id: '6003349442805', name: 'Zakupy i moda' },
+];
+```
 
 ## Zmienne Środowiskowe
 
@@ -290,28 +353,73 @@ META_AD_ACCOUNT_ID=
 # OpenRouter
 OPENROUTER_API_KEY=
 
-# App
-WEBHOOK_SECRET= # dla weryfikacji Ayrshare
+# Opcjonalne
+AGENCY_NAME=JETLABS SP Z O O
 ```
+
+## API Endpoints
+
+### Restaurants
+
+- `GET /api/restaurants` - lista
+- `POST /api/restaurants` - dodaj
+- `PUT /api/restaurants/:id` - edytuj
+- `DELETE /api/restaurants/:id` - usuń
+- `POST /api/restaurants/:id/retry-campaign` - ponów tworzenie kampanii
+
+### Ad Sets
+
+- `GET /api/ad-sets` - lista ad setów
+- `GET /api/ad-sets/categories` - lista kategorii
+- `PUT /api/ad-sets/categories/:id` - edytuj kategorię (targeting)
+- `GET /api/ad-sets/events` - lista wydarzeń
+- `DELETE /api/ad-sets/:id` - usuń ad set (+ z Meta)
+
+### Posts
+
+- `GET /api/posts` - lista
+- `POST /api/posts/manual` - dodaj ręcznie
+- `POST /api/posts/:id/pause` - wstrzymaj reklamę
+- `POST /api/posts/:id/activate` - włącz reklamę
+- `POST /api/posts/:id/retry` - ponów przetwarzanie
+- `DELETE /api/posts/:id` - usuń (+ z Meta)
+
+### Webhook
+
+- `POST /api/webhook/ayrshare` - webhook z Ayrshare
+
+### Scheduler
+
+- `POST /api/scheduler/expire-posts` - ręczne wygasanie postów
 
 ## Deployment (Vercel)
 
-- `packages/api` -> Serverless Functions
-- `packages/app` -> Static Site
-- Cron job via Vercel Cron (`vercel.json`)
+```json
+// vercel.json
+{
+  "builds": [
+    { "src": "packages/api/dist/main.js", "use": "@vercel/node" },
+    { "src": "packages/app/package.json", "use": "@vercel/static-build" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "packages/api/dist/main.js" },
+    { "src": "/(.*)", "dest": "packages/app/$1" }
+  ],
+  "crons": [
+    { "path": "/api/scheduler/expire-posts", "schedule": "0 0 * * *" }
+  ]
+}
+```
 
 ## Kluczowe Decyzje Techniczne
 
-1. **Idempotencja**: Każdy post ma unikalny `meta_post_id` - zapobiega duplikatom przy retry
-2. **Bullet-proof**: Posty najpierw zapisywane jako PENDING, status zmienia się po sukcesie Meta API
-3. **Event isolation**: Każdy unikalny event (po `event_identifier`) = osobny ad_set
-4. **50 ads limit**: Automatyczne tworzenie nowej wersji ad_set gdy limit osiągnięty
-5. **Beneficiary/Payer**: Hardcoded w createCreative - Beneficiary: restaurant.name, Payer: "your_agency_name"
-
-## Meta API - Potrzebne Permissions
-
-Twoja Meta App musi mieć:
-
-- `ads_management` - zarządzanie reklamami
-- `pages_read_engagement` - odczyt postów
-- `business_management` - dostęp do ad account
+1. **TRAFFIC bez pixela**: Używamy `OUTCOME_TRAFFIC` + `LINK_CLICKS` zamiast conversions - nie wymaga Meta Pixela
+2. **Website jako CTA**: Link do strony restauracji dodawany jako Call to Action "LEARN_MORE"
+3. **Kolejność tworzenia**: Creative PRZED Ad Setem - jeśli post nie może być promowany, nie tworzymy niepotrzebnego ad setu
+4. **Idempotencja**: `meta_post_id` jest UNIQUE - zapobiega duplikatom
+5. **Event isolation**: Każdy event (po `event_identifier`) = osobny ad set
+6. **50 ads limit**: Automatyczne tworzenie nowej wersji ad setu gdy limit
+7. **DSA compliance**: `dsa_beneficiary` = nazwa restauracji, `dsa_payor` = JETLABS SP Z O O
+8. **Instagram opcjonalny**: Targeting zawiera IG tylko jeśli restauracja ma `instagram_account_id`
+9. **Targeting z szablonów**: Każda kategoria ma edytowalny szablon (wiek, płeć, zainteresowania)
+10. **Usuwanie kaskadowe**: Usunięcie ad setu usuwa też reklamy z Meta i z bazy
