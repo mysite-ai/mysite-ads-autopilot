@@ -43,7 +43,14 @@ export default function AdSetConfig() {
   const handleSave = async () => {
     if (!editingId) return;
     try {
-      await updateAdSetCategory(editingId, { targeting_template: editForm as unknown as Record<string, unknown> });
+      await updateAdSetCategory(editingId, { 
+        targeting_template: {
+          age_min: editForm.age_min,
+          age_max: editForm.age_max,
+          genders: editForm.genders,
+          interests: editForm.interests,
+        } 
+      });
       setEditingId(null);
       load();
     } catch (e) {

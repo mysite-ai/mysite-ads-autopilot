@@ -6,10 +6,17 @@ export default function Restaurants() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    name: string; code: string; website: string;
+    area: 'S-CITY' | 'M-CITY' | 'L-CITY';
+    fame: 'Neutral' | 'Hot' | 'Epic';
+    delivery_radius_km: number;
+    facebook_page_id: string; instagram_account_id: string;
+    lat: number; lng: number; address: string;
+  }>({
     name: '', code: '', website: '',
-    area: 'M-CITY' as const,
-    fame: 'Neutral' as const,
+    area: 'M-CITY',
+    fame: 'Neutral',
     delivery_radius_km: 5,
     facebook_page_id: '', instagram_account_id: '',
     lat: 52.2297, lng: 21.0122, address: 'Warszawa'
@@ -37,7 +44,7 @@ export default function Restaurants() {
       budget_priorities: { Event: 20, Lunch: 20, Promo: 20, Product: 20, Brand: 10, Info: 10 }
     });
     setShowForm(false);
-    setForm({ name: '', code: '', website: '', area: 'M-CITY', fame: 'Neutral', delivery_radius_km: 5, facebook_page_id: '', instagram_account_id: '', lat: 52.2297, lng: 21.0122, address: 'Warszawa' });
+    setForm({ name: '', code: '', website: '', area: 'M-CITY' as const, fame: 'Neutral' as const, delivery_radius_km: 5, facebook_page_id: '', instagram_account_id: '', lat: 52.2297, lng: 21.0122, address: 'Warszawa' });
     load();
   };
 
