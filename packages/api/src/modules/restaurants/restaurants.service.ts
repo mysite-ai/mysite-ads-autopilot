@@ -13,6 +13,7 @@ export interface CreateRestaurantDto {
   facebook_page_id: string;
   instagram_account_id: string;
   location: { lat: number; lng: number; address: string };
+  meta_campaign_id?: string | null;
 }
 
 @Injectable()
@@ -33,12 +34,18 @@ export class RestaurantsService {
   }
 
   async create(dto: CreateRestaurantDto): Promise<Restaurant> {
-    // Try to create campaign in Meta Ads (optional - can fail)
-    const campaignId = await this.metaApi.createCampaign(dto.name);
-    if (campaignId) {
-      this.logger.log(`Created Meta campaign ${campaignId} for ${dto.name}`);
+    let campaignId = dto.meta_campaign_id || null;
+
+    // If no campaign ID provided, try to create one in Meta Ads
+    if (!campaignId) {
+      campaignId = await this.metaApi.createCampaign(dto.name);
+      if (campaignId) {
+        this.logger.log(`Created Meta campaign ${campaignId} for ${dto.name}`);
+      } else {
+        this.logger.warn(`Skipping Meta campaign creation for ${dto.name} - will need to be created manually`);
+      }
     } else {
-      this.logger.warn(`Skipping Meta campaign creation for ${dto.name} - will need to be created manually`);
+      this.logger.log(`Using provided campaign ID ${campaignId} for ${dto.name}`);
     }
 
     // Save restaurant with or without campaign ID

@@ -22,6 +22,7 @@ const EMPTY_RESTAURANT: CreateRestaurantDto = {
   facebook_page_id: '',
   instagram_account_id: '',
   location: { lat: 0, lng: 0, address: '' },
+  meta_campaign_id: null,
 };
 
 export default function Restaurants() {
@@ -67,6 +68,7 @@ export default function Restaurants() {
       facebook_page_id: restaurant.facebook_page_id,
       instagram_account_id: restaurant.instagram_account_id,
       location: restaurant.location,
+      meta_campaign_id: restaurant.meta_campaign_id,
     });
     setShowModal(true);
   };
@@ -166,11 +168,11 @@ export default function Restaurants() {
                     <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>
                       {r.facebook_page_id}
                     </td>
-                    <td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                       {r.meta_campaign_id ? (
-                        <span className="badge badge-success">Active</span>
+                        <span title={r.meta_campaign_id}>...{r.meta_campaign_id.slice(-8)}</span>
                       ) : (
-                        <span className="badge badge-warning">Pending</span>
+                        <span className="badge badge-warning">Brak</span>
                       )}
                     </td>
                     <td>
@@ -299,6 +301,20 @@ export default function Restaurants() {
                       placeholder="17841400000000000"
                     />
                   </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">
+                    Meta Campaign ID 
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> (opcjonalne - zostaw puste dla auto-tworzenia)</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={form.meta_campaign_id || ''}
+                    onChange={(e) => updateField('meta_campaign_id', e.target.value || null)}
+                    placeholder="120208765432109876"
+                  />
                 </div>
 
                 <div className="form-group">

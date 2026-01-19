@@ -54,4 +54,6 @@ export interface Post {
   created_at: string;
 }
 
-export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'meta_campaign_id' | 'created_at'>;
+export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'meta_campaign_id' | 'created_at'> & {
+  meta_campaign_id?: string | null;
+};
