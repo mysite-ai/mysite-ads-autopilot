@@ -171,6 +171,7 @@ export class MetaApiService {
       },
       age_min: params.ageMin || 18,
       age_max: params.ageMax || 65,
+      facebook_positions: ['feed'],
     };
 
     // Płeć (1 = mężczyźni, 2 = kobiety, puste = wszyscy)
@@ -185,57 +186,12 @@ export class MetaApiService {
       }];
     }
 
-    // Wszystkie platformy i placementy - Advantage+ placements
+    // Platformy
     if (params.includeInstagram !== false) {
-      targeting.publisher_platforms = ['facebook', 'instagram', 'audience_network', 'messenger'];
-      
-      // Facebook placements
-      targeting.facebook_positions = [
-        'feed',
-        'video_feeds',
-        'marketplace',
-        'story',
-        'search',
-        'reels',
-        'profile_feed',
-        'instream_video',
-      ];
-      
-      // Instagram placements
-      targeting.instagram_positions = [
-        'stream',
-        'story',
-        'explore',
-        'explore_home',
-        'reels',
-        'profile_feed',
-        'ig_search',
-      ];
-      
-      // Audience Network placements
-      targeting.audience_network_positions = [
-        'classic',
-        'rewarded_video',
-      ];
-      
-      // Messenger placements
-      targeting.messenger_positions = [
-        'messenger_home',
-        'story',
-      ];
+      targeting.publisher_platforms = ['facebook', 'instagram'];
+      targeting.instagram_positions = ['stream', 'story', 'reels'];
     } else {
-      // Tylko Facebook - wszystkie dostępne placementy
       targeting.publisher_platforms = ['facebook'];
-      targeting.facebook_positions = [
-        'feed',
-        'video_feeds',
-        'marketplace',
-        'story',
-        'search',
-        'reels',
-        'profile_feed',
-        'instream_video',
-      ];
     }
 
     return targeting;
