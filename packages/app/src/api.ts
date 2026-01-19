@@ -1,4 +1,4 @@
-import type { Restaurant, AdSetCategory, AdSet, Post, CreateRestaurantDto } from './types';
+import type { Restaurant, AdSetCategory, AdSet, Post, Event, CreateRestaurantDto } from './types';
 
 const API_BASE = '/api';
 
@@ -23,6 +23,10 @@ export const createRestaurant = (data: CreateRestaurantDto) =>
   fetchApi<Restaurant>('/restaurants', { method: 'POST', body: JSON.stringify(data) });
 export const updateRestaurant = (id: string, data: Partial<CreateRestaurantDto>) =>
   fetchApi<Restaurant>(`/restaurants/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteRestaurant = (id: string) =>
+  fetchApi<{ success: boolean }>(`/restaurants/${id}`, { method: 'DELETE' });
+export const retryCampaignCreation = (id: string) =>
+  fetchApi<Restaurant>(`/restaurants/${id}/retry-campaign`, { method: 'POST' });
 
 // Ad Sets
 export const getAdSetCategories = () => fetchApi<AdSetCategory[]>('/ad-sets/categories');
@@ -30,6 +34,12 @@ export const updateAdSetCategory = (id: string, data: Partial<AdSetCategory>) =>
   fetchApi<AdSetCategory>(`/ad-sets/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const getAdSets = (restaurantId?: string) => 
   fetchApi<AdSet[]>(`/ad-sets${restaurantId ? `?restaurantId=${restaurantId}` : ''}`);
+export const deleteAdSet = (id: string) =>
+  fetchApi<{ success: boolean }>(`/ad-sets/${id}`, { method: 'DELETE' });
+
+// Events
+export const getEvents = (restaurantId?: string) =>
+  fetchApi<Event[]>(`/ad-sets/events${restaurantId ? `?restaurantId=${restaurantId}` : ''}`);
 
 // Posts
 export const getPosts = (restaurantId?: string) =>
@@ -40,6 +50,10 @@ export const activatePost = (id: string) =>
   fetchApi<Post>(`/posts/${id}/activate`, { method: 'POST' });
 export const addManualPost = (data: { restaurant_id: string; post_id: string; content: string }) =>
   fetchApi<Post>('/posts/manual', { method: 'POST', body: JSON.stringify(data) });
+export const retryPost = (id: string) =>
+  fetchApi<Post>(`/posts/${id}/retry`, { method: 'POST' });
+export const deletePost = (id: string) =>
+  fetchApi<{ success: boolean }>(`/posts/${id}`, { method: 'DELETE' });
 
 // Scheduler
 export const triggerExpirePosts = () =>

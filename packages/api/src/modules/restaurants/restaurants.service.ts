@@ -34,28 +34,40 @@ export class RestaurantsService {
   }
 
   async create(dto: CreateRestaurantDto): Promise<Restaurant> {
-    let campaignId = dto.meta_campaign_id || null;
+    const restaurant = await this.supabase.createRestaurant({
+      ...dto,
+      meta_campaign_id: dto.meta_campaign_id || null,
+    });
 
-    // If no campaign ID provided, try to create one in Meta Ads
-    if (!campaignId) {
-      campaignId = await this.metaApi.createCampaign(dto.name);
-      if (campaignId) {
-        this.logger.log(`Created Meta campaign ${campaignId} for ${dto.name}`);
-      } else {
-        this.logger.warn(`Skipping Meta campaign creation for ${dto.name} - will need to be created manually`);
+    if (!dto.meta_campaign_id) {
+      try {
+        const campaignId = await this.metaApi.createCampaign(dto.name);
+        this.logger.log(`Created campaign ${campaignId} for ${dto.name}`);
+        return this.supabase.updateRestaurant(restaurant.id, { meta_campaign_id: campaignId });
+      } catch (error) {
+        this.logger.error(`Failed to create campaign: ${error}`);
+        return restaurant;
       }
-    } else {
-      this.logger.log(`Using provided campaign ID ${campaignId} for ${dto.name}`);
     }
 
-    // Save restaurant with or without campaign ID
-    return this.supabase.createRestaurant({
-      ...dto,
-      meta_campaign_id: campaignId,
-    });
+    return restaurant;
   }
 
   async update(id: string, dto: Partial<CreateRestaurantDto>): Promise<Restaurant> {
     return this.supabase.updateRestaurant(id, dto);
+  }
+
+  async delete(id: string): Promise<{ success: boolean }> {
+    await this.supabase.deleteRestaurant(id);
+    return { success: true };
+  }
+
+  async retryCampaign(id: string): Promise<Restaurant> {
+    const restaurant = await this.supabase.getRestaurant(id);
+    if (!restaurant) throw new Error(`Restaurant not found: ${id}`);
+    if (restaurant.meta_campaign_id) return restaurant;
+
+    const campaignId = await this.metaApi.createCampaign(restaurant.name);
+    return this.supabase.updateRestaurant(id, { meta_campaign_id: campaignId });
   }
 }

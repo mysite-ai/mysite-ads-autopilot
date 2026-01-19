@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -14,6 +14,7 @@ export interface Restaurant {
   facebook_page_id: string;
   instagram_account_id: string;
   meta_campaign_id: string | null;
+  meta_pixel_id: string | null;
   location: { lat: number; lng: number; address: string };
   created_at: string;
 }
@@ -68,9 +69,21 @@ export interface Event {
   created_at: string;
 }
 
+// Simple in-memory cache
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const CACHE_TTL = 30000; // 30 seconds
+
 @Injectable()
 export class SupabaseService {
+  private readonly logger = new Logger(SupabaseService.name);
   private client: SupabaseClient;
+  
+  // Cache
+  private cache: Map<string, CacheEntry<unknown>> = new Map();
 
   constructor(private config: ConfigService) {
     this.client = createClient(
@@ -79,34 +92,52 @@ export class SupabaseService {
     );
   }
 
-  // Restaurants
+  private getCache<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+    if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+      return entry.data as T;
+    }
+    return null;
+  }
+
+  private setCache<T>(key: string, data: T): void {
+    this.cache.set(key, { data, timestamp: Date.now() });
+  }
+
+  private invalidateCache(prefix?: string): void {
+    if (prefix) {
+      for (const key of this.cache.keys()) {
+        if (key.startsWith(prefix)) this.cache.delete(key);
+      }
+    } else {
+      this.cache.clear();
+    }
+  }
+
+  // Restaurants (cached)
   async getRestaurants(): Promise<Restaurant[]> {
+    const cached = this.getCache<Restaurant[]>('restaurants');
+    if (cached) return cached;
+
     const { data, error } = await this.client
       .from('restaurants')
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    
+    const result = data || [];
+    this.setCache('restaurants', result);
+    return result;
   }
 
   async getRestaurant(id: string): Promise<Restaurant | null> {
-    const { data, error } = await this.client
-      .from('restaurants')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
+    const all = await this.getRestaurants();
+    return all.find(r => r.id === id) || null;
   }
 
   async getRestaurantByPageId(pageId: string): Promise<Restaurant | null> {
-    const { data, error } = await this.client
-      .from('restaurants')
-      .select('*')
-      .eq('facebook_page_id', pageId)
-      .single();
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
+    const all = await this.getRestaurants();
+    return all.find(r => r.facebook_page_id === pageId) || null;
   }
 
   async createRestaurant(restaurant: Partial<Restaurant>): Promise<Restaurant> {
@@ -116,6 +147,7 @@ export class SupabaseService {
       .select()
       .single();
     if (error) throw error;
+    this.invalidateCache('restaurants');
     return data;
   }
 
@@ -127,27 +159,35 @@ export class SupabaseService {
       .select()
       .single();
     if (error) throw error;
+    this.invalidateCache('restaurants');
     return data;
   }
 
-  // Ad Set Categories
+  async deleteRestaurant(id: string): Promise<void> {
+    const { error } = await this.client.from('restaurants').delete().eq('id', id);
+    if (error) throw error;
+    this.invalidateCache('restaurants');
+  }
+
+  // Ad Set Categories (cached - rarely changes)
   async getAdSetCategories(): Promise<AdSetCategory[]> {
+    const cached = this.getCache<AdSetCategory[]>('categories');
+    if (cached) return cached;
+
     const { data, error } = await this.client
       .from('ad_set_categories')
       .select('*')
       .order('code');
     if (error) throw error;
-    return data || [];
+    
+    const result = data || [];
+    this.setCache('categories', result);
+    return result;
   }
 
   async getAdSetCategory(code: string): Promise<AdSetCategory | null> {
-    const { data, error } = await this.client
-      .from('ad_set_categories')
-      .select('*')
-      .eq('code', code)
-      .single();
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
+    const all = await this.getAdSetCategories();
+    return all.find(c => c.code === code) || null;
   }
 
   async updateAdSetCategory(id: string, updates: Partial<AdSetCategory>): Promise<AdSetCategory> {
@@ -158,18 +198,24 @@ export class SupabaseService {
       .select()
       .single();
     if (error) throw error;
+    this.invalidateCache('categories');
     return data;
   }
 
-  // Ad Sets
+  // Ad Sets (cached)
   async getAdSets(restaurantId?: string): Promise<AdSet[]> {
+    const cacheKey = restaurantId ? `adsets:${restaurantId}` : 'adsets:all';
+    const cached = this.getCache<AdSet[]>(cacheKey);
+    if (cached) return cached;
+
     let query = this.client.from('ad_sets').select('*');
-    if (restaurantId) {
-      query = query.eq('restaurant_id', restaurantId);
-    }
+    if (restaurantId) query = query.eq('restaurant_id', restaurantId);
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    
+    const result = data || [];
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   async getAdSetForCategory(
@@ -180,6 +226,7 @@ export class SupabaseService {
     const category = await this.getAdSetCategory(categoryCode);
     if (!category) return null;
 
+    // Fresh query for this (needs accurate count)
     let query = this.client
       .from('ad_sets')
       .select('*')
@@ -200,19 +247,29 @@ export class SupabaseService {
     return data;
   }
 
-  async createAdSet(adSet: Partial<AdSet>): Promise<AdSet> {
-    const { data, error } = await this.client
-      .from('ad_sets')
-      .insert(adSet)
-      .select()
-      .single();
-    if (error) throw error;
+  async getAdSet(id: string): Promise<AdSet | null> {
+    const { data, error } = await this.client.from('ad_sets').select('*').eq('id', id).single();
+    if (error && error.code !== 'PGRST116') throw error;
     return data;
+  }
+
+  async createAdSet(adSet: Partial<AdSet>): Promise<AdSet> {
+    const { data, error } = await this.client.from('ad_sets').insert(adSet).select().single();
+    if (error) throw error;
+    this.invalidateCache('adsets');
+    return data;
+  }
+
+  async deleteAdSet(id: string): Promise<void> {
+    const { error } = await this.client.from('ad_sets').delete().eq('id', id);
+    if (error) throw error;
+    this.invalidateCache('adsets');
   }
 
   async incrementAdSetCount(id: string): Promise<void> {
     const { error } = await this.client.rpc('increment_ad_set_count', { ad_set_id: id });
     if (error) throw error;
+    this.invalidateCache('adsets');
   }
 
   async getNextAdSetVersion(restaurantId: string, categoryId: string): Promise<number> {
@@ -227,15 +284,26 @@ export class SupabaseService {
     return (data?.[0]?.version || 0) + 1;
   }
 
-  // Posts
+  // Posts (cached)
   async getPosts(restaurantId?: string): Promise<Post[]> {
+    const cacheKey = restaurantId ? `posts:${restaurantId}` : 'posts:all';
+    const cached = this.getCache<Post[]>(cacheKey);
+    if (cached) return cached;
+
     let query = this.client.from('posts').select('*');
-    if (restaurantId) {
-      query = query.eq('restaurant_id', restaurantId);
-    }
+    if (restaurantId) query = query.eq('restaurant_id', restaurantId);
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    
+    const result = data || [];
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
+  async getPost(id: string): Promise<Post | null> {
+    const { data, error } = await this.client.from('posts').select('*').eq('id', id).single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
   }
 
   async getPostByMetaId(metaPostId: string): Promise<Post | null> {
@@ -248,13 +316,22 @@ export class SupabaseService {
     return data;
   }
 
-  async createPost(post: Partial<Post>): Promise<Post> {
-    const { data, error } = await this.client
-      .from('posts')
-      .insert(post)
-      .select()
-      .single();
+  async deletePost(id: string): Promise<void> {
+    const { error } = await this.client.from('posts').delete().eq('id', id);
     if (error) throw error;
+    this.invalidateCache('posts');
+  }
+
+  async deletePostsByAdSetId(adSetId: string): Promise<void> {
+    const { error } = await this.client.from('posts').delete().eq('ad_set_id', adSetId);
+    if (error) throw error;
+    this.invalidateCache('posts');
+  }
+
+  async createPost(post: Partial<Post>): Promise<Post> {
+    const { data, error } = await this.client.from('posts').insert(post).select().single();
+    if (error) throw error;
+    this.invalidateCache('posts');
     return data;
   }
 
@@ -266,6 +343,7 @@ export class SupabaseService {
       .select()
       .single();
     if (error) throw error;
+    this.invalidateCache('posts');
     return data;
   }
 
@@ -281,6 +359,14 @@ export class SupabaseService {
   }
 
   // Events
+  async getEvents(restaurantId?: string): Promise<Event[]> {
+    let query = this.client.from('events').select('*');
+    if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+    const { data, error } = await query.order('event_date', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  }
+
   async getEvent(restaurantId: string, identifier: string): Promise<Event | null> {
     const { data, error } = await this.client
       .from('events')
@@ -293,11 +379,7 @@ export class SupabaseService {
   }
 
   async createEvent(event: Partial<Event>): Promise<Event> {
-    const { data, error } = await this.client
-      .from('events')
-      .insert(event)
-      .select()
-      .single();
+    const { data, error } = await this.client.from('events').insert(event).select().single();
     if (error) throw error;
     return data;
   }

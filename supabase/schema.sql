@@ -17,9 +17,13 @@ CREATE TABLE restaurants (
   facebook_page_id TEXT NOT NULL,
   instagram_account_id TEXT,
   meta_campaign_id TEXT,
+  meta_pixel_id TEXT,
   location JSONB NOT NULL DEFAULT '{"lat": 0, "lng": 0, "address": ""}',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: Add meta_pixel_id column if it doesn't exist
+-- ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS meta_pixel_id TEXT;
 
 -- Ad Set Categories table (predefined)
 CREATE TABLE ad_set_categories (

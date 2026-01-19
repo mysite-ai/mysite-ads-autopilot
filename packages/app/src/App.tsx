@@ -3,61 +3,42 @@ import Dashboard from './pages/Dashboard';
 import Restaurants from './pages/Restaurants';
 import AdSetConfig from './pages/AdSetConfig';
 import PostsLog from './pages/PostsLog';
+import Events from './pages/Events';
 
-type Page = 'dashboard' | 'restaurants' | 'adsets' | 'posts';
+type Page = 'dashboard' | 'restaurants' | 'adsets' | 'events' | 'posts';
 
-function App() {
+export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
 
-  const renderPage = () => {
-    switch (page) {
-      case 'dashboard': return <Dashboard />;
-      case 'restaurants': return <Restaurants />;
-      case 'adsets': return <AdSetConfig />;
-      case 'posts': return <PostsLog />;
-    }
-  };
-
   return (
-    <div className="layout">
-      <nav className="sidebar">
-        <div className="sidebar-logo">
-          <span>⚡</span> Autopilot
-        </div>
-        <a
-          href="#"
-          className={`nav-link ${page === 'dashboard' ? 'active' : ''}`}
-          onClick={(e) => { e.preventDefault(); setPage('dashboard'); }}
-        >
-          📊 Dashboard
-        </a>
-        <a
-          href="#"
-          className={`nav-link ${page === 'restaurants' ? 'active' : ''}`}
-          onClick={(e) => { e.preventDefault(); setPage('restaurants'); }}
-        >
-          🍽️ Restauracje
-        </a>
-        <a
-          href="#"
-          className={`nav-link ${page === 'adsets' ? 'active' : ''}`}
-          onClick={(e) => { e.preventDefault(); setPage('adsets'); }}
-        >
-          🎯 Ad Sets
-        </a>
-        <a
-          href="#"
-          className={`nav-link ${page === 'posts' ? 'active' : ''}`}
-          onClick={(e) => { e.preventDefault(); setPage('posts'); }}
-        >
-          📝 Posty
-        </a>
-      </nav>
-      <main className="main-content">
-        {renderPage()}
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar-logo">Meta Autopilot</div>
+        <nav>
+          <a href="#" className={page === 'dashboard' ? 'active' : ''} onClick={() => setPage('dashboard')}>
+            Dashboard
+          </a>
+          <a href="#" className={page === 'restaurants' ? 'active' : ''} onClick={() => setPage('restaurants')}>
+            Restauracje
+          </a>
+          <a href="#" className={page === 'adsets' ? 'active' : ''} onClick={() => setPage('adsets')}>
+            Ad Sety
+          </a>
+          <a href="#" className={page === 'events' ? 'active' : ''} onClick={() => setPage('events')}>
+            Wydarzenia
+          </a>
+          <a href="#" className={page === 'posts' ? 'active' : ''} onClick={() => setPage('posts')}>
+            Reklamy
+          </a>
+        </nav>
+      </aside>
+      <main>
+        {page === 'dashboard' && <Dashboard />}
+        {page === 'restaurants' && <Restaurants />}
+        {page === 'adsets' && <AdSetConfig />}
+        {page === 'events' && <Events />}
+        {page === 'posts' && <PostsLog />}
       </main>
     </div>
   );
 }
-
-export default App;

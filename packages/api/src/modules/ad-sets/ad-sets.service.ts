@@ -1,46 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  SupabaseService,
-  AdSet,
-  AdSetCategory,
-  Restaurant,
-} from '../../services/supabase.service';
+import { SupabaseService, AdSet, AdSetCategory, Restaurant, Event } from '../../services/supabase.service';
 import { MetaApiService } from '../../services/meta-api.service';
 
-// Category-specific targeting overrides
-const CATEGORY_TARGETING: Record<string, Partial<{
-  ageMin: number;
-  ageMax: number;
-  interests: Array<{ id: string; name: string }>;
-}>> = {
-  EV_FAM: {
-    interests: [{ id: '6003139266461', name: 'Family' }],
-  },
-  EV_PAR: {
-    ageMin: 21,
-    ageMax: 45,
-    interests: [{ id: '6003248649975', name: 'Dating' }],
-  },
-  EV_SEN: {
-    ageMin: 55,
-    ageMax: 65,
-  },
-  LU_ONS: {
-    interests: [{ id: '6003107902433', name: 'Restaurants' }],
-  },
-  LU_DEL: {
-    interests: [{ id: '6003384829661', name: 'Food delivery' }],
-  },
-  PD_DEL: {
-    interests: [{ id: '6003384829661', name: 'Food delivery' }],
-  },
-  PR_DEL_CYK: {
-    interests: [{ id: '6003384829661', name: 'Food delivery' }],
-  },
-  PR_DEL_JED: {
-    interests: [{ id: '6003384829661', name: 'Food delivery' }],
-  },
-};
+interface TargetingTemplate {
+  age_min?: number;
+  age_max?: number;
+  genders?: number[];
+  interests?: Array<{ id: string; name: string }>;
+}
 
 @Injectable()
 export class AdSetsService {
@@ -63,12 +30,15 @@ export class AdSetsService {
     return this.supabase.getAdSets(restaurantId);
   }
 
+  async getEvents(restaurantId?: string): Promise<Event[]> {
+    return this.supabase.getEvents(restaurantId);
+  }
+
   async getOrCreateAdSet(
     restaurant: Restaurant,
     categoryCode: string,
     eventIdentifier?: string,
   ): Promise<AdSet> {
-    // Check for existing ad set with available capacity
     const existing = await this.supabase.getAdSetForCategory(
       restaurant.id,
       categoryCode,
@@ -80,7 +50,6 @@ export class AdSetsService {
       return existing;
     }
 
-    // Need to create new ad set
     return this.createAdSet(restaurant, categoryCode, eventIdentifier);
   }
 
@@ -90,50 +59,43 @@ export class AdSetsService {
     eventIdentifier?: string,
   ): Promise<AdSet> {
     const category = await this.supabase.getAdSetCategory(categoryCode);
-    if (!category) {
-      throw new Error(`Unknown category: ${categoryCode}`);
-    }
+    if (!category) throw new Error(`Unknown category: ${categoryCode}`);
+    if (!restaurant.meta_campaign_id) throw new Error(`No campaign for ${restaurant.name}`);
 
-    if (!restaurant.meta_campaign_id) {
-      throw new Error(`Restaurant ${restaurant.name} has no campaign`);
-    }
-
-    // Get next version number
     const version = await this.supabase.getNextAdSetVersion(restaurant.id, category.id);
-    const versionStr = version.toString().padStart(2, '0');
-    const adSetName = `${restaurant.code}_${categoryCode}_${versionStr}`;
+    const adSetName = `${restaurant.code}_${categoryCode}_${version.toString().padStart(2, '0')}`;
 
-    // Build targeting
-    const isDelivery = category.requires_delivery;
-    const radiusKm = isDelivery
+    // Pobierz szablon targetowania z kategorii
+    const template = (category.targeting_template || {}) as TargetingTemplate;
+
+    const radiusKm = category.requires_delivery
       ? restaurant.delivery_radius_km
       : this.getBaseRadiusKm(restaurant.area);
 
-    const categoryOverrides = CATEGORY_TARGETING[categoryCode] || {};
+    // Buduj targeting z szablonu kategorii
     const targeting = this.metaApi.buildTargeting({
       lat: restaurant.location.lat,
       lng: restaurant.location.lng,
       radiusKm,
-      ageMin: categoryOverrides.ageMin,
-      ageMax: categoryOverrides.ageMax,
-      interests: categoryOverrides.interests,
+      includeInstagram: !!restaurant.instagram_account_id,
+      // Parametry z szablonu kategorii
+      ageMin: template.age_min,
+      ageMax: template.age_max,
+      genders: template.genders,
+      interests: template.interests,
     });
 
-    // Calculate daily budget based on priorities
-    const baseBudget = 50; // PLN - could be made configurable
-    const categoryPriority = restaurant.budget_priorities[category.parent_category] || 10;
-    const totalPriority = Object.values(restaurant.budget_priorities).reduce((a, b) => a + b, 100);
-    const dailyBudget = Math.round((baseBudget * categoryPriority) / totalPriority);
+    this.logger.log(`Creating ad set with targeting: age=${template.age_min || 18}-${template.age_max || 65}, genders=${template.genders?.join(',') || 'all'}, interests=${template.interests?.length || 0}`);
 
-    // Create in Meta
     const metaAdSetId = await this.metaApi.createAdSet({
       campaignId: restaurant.meta_campaign_id,
       name: adSetName,
       targeting,
-      dailyBudget: Math.max(dailyBudget, 5), // Min 5 PLN
+      dailyBudget: 10, // 10 PLN min
+      beneficiary: restaurant.name,
+      pageId: restaurant.facebook_page_id,
     });
 
-    // Save to database
     const adSet = await this.supabase.createAdSet({
       restaurant_id: restaurant.id,
       category_id: category.id,
@@ -156,5 +118,31 @@ export class AdSetsService {
       case 'L-CITY': return 15;
       default: return 10;
     }
+  }
+
+  async deleteAdSet(adSetId: string): Promise<{ success: boolean }> {
+    const adSet = await this.supabase.getAdSet(adSetId);
+    if (!adSet) {
+      throw new Error(`Ad Set nie znaleziony: ${adSetId}`);
+    }
+
+    // Usuń ad set z Meta jeśli istnieje
+    if (adSet.meta_ad_set_id) {
+      try {
+        await this.metaApi.deleteAdSet(adSet.meta_ad_set_id);
+        this.logger.log(`Usunięto ad set z Meta: ${adSet.meta_ad_set_id}`);
+      } catch (error) {
+        this.logger.warn(`Nie udało się usunąć ad set z Meta: ${error}`);
+      }
+    }
+
+    // Usuń wszystkie posty powiązane z tym ad setem
+    await this.supabase.deletePostsByAdSetId(adSetId);
+    
+    // Usuń ad set z bazy
+    await this.supabase.deleteAdSet(adSetId);
+    this.logger.log(`Usunięto ad set ${adSetId}`);
+    
+    return { success: true };
   }
 }

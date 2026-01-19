@@ -4,21 +4,9 @@ import { ConfigService } from '@nestjs/config';
 const META_API_VERSION = 'v23.0';
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
-interface MetaApiError {
-  message: string;
-  type: string;
-  code: number;
-}
-
 interface MetaApiResponse {
   id?: string;
-  error?: MetaApiError;
-  data?: unknown[];
-}
-
-interface AudienceEstimate {
-  users_lower_bound: number;
-  users_upper_bound: number;
+  error?: { message: string; error_user_msg?: string };
 }
 
 @Injectable()
@@ -31,7 +19,7 @@ export class MetaApiService {
   constructor(private config: ConfigService) {
     this.accessToken = this.config.getOrThrow('META_ACCESS_TOKEN');
     this.adAccountId = this.config.getOrThrow('META_AD_ACCOUNT_ID');
-    this.agencyName = this.config.get('AGENCY_NAME', 'MarketingAgency');
+    this.agencyName = this.config.get('AGENCY_NAME', 'JETLABS SP Z O O');
   }
 
   private async request<T extends MetaApiResponse>(
@@ -41,106 +29,101 @@ export class MetaApiService {
   ): Promise<T> {
     const fullUrl = `${url}${url.includes('?') ? '&' : '?'}access_token=${this.accessToken}`;
     
-    const options: RequestInit = {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-    };
-    
+    const options: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
     if (body && method === 'POST') {
       options.body = JSON.stringify(body);
     }
 
     this.logger.debug(`Meta API ${method} ${url}`);
+    if (body) this.logger.debug(`Body: ${JSON.stringify(body)}`);
+    
     const response = await fetch(fullUrl, options);
     const data = await response.json() as T;
 
     if (data.error) {
-      this.logger.error(`Meta API Error: ${data.error.message}`);
-      throw new Error(`Meta API Error: ${data.error.message}`);
+      this.logger.error(`Meta API Error: ${JSON.stringify(data.error)}`);
+      throw new Error(`Meta API Error: ${data.error.message} ${data.error.error_user_msg || ''}`);
     }
-
     return data;
   }
 
-  async createCampaign(restaurantName: string): Promise<string | null> {
-    try {
-      const url = `${META_API_BASE}/act_${this.adAccountId}/campaigns`;
-      const result = await this.request<MetaApiResponse>(url, 'POST', {
-        name: restaurantName,
-        objective: 'OUTCOME_TRAFFIC',
-        status: 'PAUSED',
-        special_ad_categories: [],
-      });
-      
-      if (!result.id) throw new Error('Failed to create campaign');
-      this.logger.log(`Created campaign: ${result.id} for ${restaurantName}`);
-      return result.id;
-    } catch (error) {
-      this.logger.error(`Failed to create campaign for ${restaurantName}: ${error}`);
-      return null;
-    }
+  // Kampania TRAFFIC - cel: wizyty na profilu FB/IG (nie wymaga pixela!)
+  async createCampaign(restaurantName: string): Promise<string> {
+    const url = `${META_API_BASE}/act_${this.adAccountId}/campaigns`;
+    const result = await this.request<MetaApiResponse>(url, 'POST', {
+      name: restaurantName,
+      objective: 'OUTCOME_TRAFFIC',
+      status: 'PAUSED',
+      special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false,
+    });
+    
+    if (!result.id) throw new Error('Failed to create campaign');
+    this.logger.log(`Created campaign: ${result.id}`);
+    return result.id;
   }
 
+  // Ad Set z celem LINK_CLICKS (nie wymaga pixela!)
   async createAdSet(params: {
     campaignId: string;
     name: string;
     targeting: Record<string, unknown>;
     dailyBudget: number;
+    beneficiary: string;
+    pageId: string;
   }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/adsets`;
+    
     const result = await this.request<MetaApiResponse>(url, 'POST', {
       campaign_id: params.campaignId,
       name: params.name,
       status: 'ACTIVE',
-      daily_budget: params.dailyBudget * 100, // Convert to cents
+      daily_budget: params.dailyBudget * 100, // grosze
       billing_event: 'IMPRESSIONS',
-      optimization_goal: 'POST_ENGAGEMENT',
+      optimization_goal: 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: params.targeting,
+      dsa_beneficiary: params.beneficiary,
+      dsa_payor: this.agencyName,
     });
 
     if (!result.id) throw new Error('Failed to create ad set');
-    this.logger.log(`Created ad set: ${result.id} - ${params.name}`);
+    this.logger.log(`Created ad set: ${result.id}`);
     return result.id;
   }
 
-  async createCreative(params: {
-    pageId: string;
+  async createCreative(params: { 
+    pageId: string; 
     postId: string;
-    restaurantName: string;
+    websiteUrl?: string;
   }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/adcreatives`;
-    const objectStoryId = `${params.pageId}_${params.postId}`;
     
-    const result = await this.request<MetaApiResponse>(url, 'POST', {
+    const body: Record<string, unknown> = {
       name: `Creative - ${params.postId}`,
-      object_story_id: objectStoryId,
-      degrees_of_freedom_spec: {
-        creative_features_spec: {
-          standard_enhancements: {
-            enroll_status: 'OPT_OUT',
-          },
+      object_story_id: `${params.pageId}_${params.postId}`,
+    };
+
+    // Dodaj Call to Action z linkiem do strony jeśli podano
+    if (params.websiteUrl) {
+      body.call_to_action = {
+        type: 'LEARN_MORE',
+        value: {
+          link: params.websiteUrl,
         },
-      },
-      contextual_multi_ads: {
-        enroll_status: 'OPT_OUT',
-      },
-      // Beneficiary and Payer for EU transparency
-      object_story_spec: {
-        page_id: params.pageId,
-      },
-    });
+      };
+      // Source URL dla trackingu
+      body.source_url = params.websiteUrl;
+    }
+
+    const result = await this.request<MetaApiResponse>(url, 'POST', body);
 
     if (!result.id) throw new Error('Failed to create creative');
-    this.logger.log(`Created creative: ${result.id}`);
+    this.logger.log(`Created creative with CTA link: ${params.websiteUrl || 'none'}`);
     return result.id;
   }
 
-  async createAd(params: {
-    adSetId: string;
-    creativeId: string;
-    name: string;
-  }): Promise<string> {
+  async createAd(params: { adSetId: string; creativeId: string; name: string }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/ads`;
     const result = await this.request<MetaApiResponse>(url, 'POST', {
       name: params.name,
@@ -150,31 +133,21 @@ export class MetaApiService {
     });
 
     if (!result.id) throw new Error('Failed to create ad');
-    this.logger.log(`Created ad: ${result.id} - ${params.name}`);
     return result.id;
   }
 
   async updateAdStatus(adId: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
-    const url = `${META_API_BASE}/${adId}`;
-    await this.request<MetaApiResponse>(url, 'POST', { status });
-    this.logger.log(`Updated ad ${adId} status to ${status}`);
+    await this.request(`${META_API_BASE}/${adId}`, 'POST', { status });
   }
 
-  async updateAdSetStatus(adSetId: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
-    const url = `${META_API_BASE}/${adSetId}`;
-    await this.request<MetaApiResponse>(url, 'POST', { status });
-    this.logger.log(`Updated ad set ${adSetId} status to ${status}`);
+  async deleteAdSet(adSetId: string): Promise<void> {
+    await this.request(`${META_API_BASE}/${adSetId}`, 'POST', { status: 'DELETED' });
+    this.logger.log(`Deleted ad set: ${adSetId}`);
   }
 
-  async getAudienceEstimate(targeting: Record<string, unknown>): Promise<AudienceEstimate | null> {
-    try {
-      const url = `${META_API_BASE}/act_${this.adAccountId}/reachestimate`;
-      const result = await this.request<MetaApiResponse & { data?: AudienceEstimate[] }>(url, 'GET');
-      return result.data?.[0] || null;
-    } catch {
-      this.logger.warn('Failed to get audience estimate');
-      return null;
-    }
+  async deleteAd(adId: string): Promise<void> {
+    await this.request(`${META_API_BASE}/${adId}`, 'POST', { status: 'DELETED' });
+    this.logger.log(`Deleted ad: ${adId}`);
   }
 
   buildTargeting(params: {
@@ -183,28 +156,42 @@ export class MetaApiService {
     radiusKm: number;
     ageMin?: number;
     ageMax?: number;
+    genders?: number[];
     interests?: Array<{ id: string; name: string }>;
+    includeInstagram?: boolean;
   }): Record<string, unknown> {
     const targeting: Record<string, unknown> = {
       geo_locations: {
-        custom_locations: [
-          {
-            latitude: params.lat,
-            longitude: params.lng,
-            radius: params.radiusKm,
-            distance_unit: 'kilometer',
-          },
-        ],
+        custom_locations: [{
+          latitude: params.lat,
+          longitude: params.lng,
+          radius: params.radiusKm,
+          distance_unit: 'kilometer',
+        }],
       },
       age_min: params.ageMin || 18,
       age_max: params.ageMax || 65,
-      publisher_platforms: ['facebook', 'instagram'],
-      facebook_positions: ['feed', 'story', 'reels'],
-      instagram_positions: ['stream', 'story', 'reels'],
+      facebook_positions: ['feed'],
     };
 
-    if (params.interests?.length) {
-      targeting.flexible_spec = [{ interests: params.interests }];
+    // Płeć (1 = mężczyźni, 2 = kobiety, puste = wszyscy)
+    if (params.genders && params.genders.length > 0) {
+      targeting.genders = params.genders;
+    }
+
+    // Zainteresowania
+    if (params.interests && params.interests.length > 0) {
+      targeting.flexible_spec = [{
+        interests: params.interests.map(i => ({ id: i.id, name: i.name })),
+      }];
+    }
+
+    // Platformy
+    if (params.includeInstagram !== false) {
+      targeting.publisher_platforms = ['facebook', 'instagram'];
+      targeting.instagram_positions = ['stream', 'story', 'reels'];
+    } else {
+      targeting.publisher_platforms = ['facebook'];
     }
 
     return targeting;

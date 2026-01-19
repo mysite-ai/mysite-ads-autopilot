@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
 import { RestaurantsService, CreateRestaurantDto } from './restaurants.service';
 
 @Controller('restaurants')
@@ -23,5 +23,15 @@ export class RestaurantsController {
   @Put(':id')
   update(@Param('id') id: string, @Body() dto: Partial<CreateRestaurantDto>) {
     return this.service.update(id, dto);
+  }
+
+  @Delete(':id')
+  delete(@Param('id') id: string) {
+    return this.service.delete(id);
+  }
+
+  @Post(':id/retry-campaign')
+  retryCampaign(@Param('id') id: string) {
+    return this.service.retryCampaign(id);
   }
 }

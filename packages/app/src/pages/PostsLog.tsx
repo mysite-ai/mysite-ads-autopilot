@@ -1,329 +1,171 @@
 import { useEffect, useState } from 'react';
-import { getPosts, getRestaurants, pausePost, activatePost, addManualPost } from '../api';
-import type { Post, Restaurant } from '../types';
+import { getRestaurants, getPosts, getAdSets, addManualPost, retryPost, deletePost, pausePost, activatePost } from '../api';
+import type { Restaurant, Post, AdSet } from '../types';
 
 export default function PostsLog() {
-  const [posts, setPosts] = useState<Post[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [adSets, setAdSets] = useState<AdSet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>('all');
-  const [restaurantFilter, setRestaurantFilter] = useState<string>('all');
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  
-  // Manual post form
-  const [showManualForm, setShowManualForm] = useState(false);
-  const [manualForm, setManualForm] = useState({
-    restaurant_id: '',
-    post_id: '',
-    content: '',
-  });
-  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({ restaurant_id: '', post_id: '', content: '' });
+  const [showForm, setShowForm] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const load = () => {
+    setLoading(true);
+    Promise.all([getRestaurants(), getPosts(), getAdSets()])
+      .then(([r, p, a]) => { setRestaurants(r); setPosts(p); setAdSets(a); })
+      .finally(() => setLoading(false));
+  };
 
-  const loadData = async () => {
+  useEffect(() => { load(); }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
     try {
-      const [postsData, restaurantsData] = await Promise.all([
-        getPosts(),
-        getRestaurants(),
-      ]);
-      setPosts(postsData);
-      setRestaurants(restaurantsData);
-      
-      // Set default restaurant for manual form
-      if (restaurantsData.length > 0 && !manualForm.restaurant_id) {
-        setManualForm(prev => ({ ...prev, restaurant_id: restaurantsData[0].id }));
-      }
+      await addManualPost(form);
+      setForm({ ...form, post_id: '', content: '' });
+      setShowForm(false);
+      load();
     } catch (err) {
-      console.error('Failed to load data:', err);
-    } finally {
-      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Błąd');
     }
   };
 
-  const togglePostStatus = async (post: Post) => {
+  const handleRetry = async (id: string) => {
+    try {
+      await retryPost(id);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Błąd');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Usunąć reklamę z Meta i z bazy?')) return;
+    try {
+      await deletePost(id);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Błąd');
+    }
+  };
+
+  const handleToggle = async (post: Post) => {
     try {
       if (post.status === 'ACTIVE') {
-        await pausePost(post.meta_post_id);
-        setToast({ type: 'success', message: 'Post wstrzymany' });
-      } else if (post.status === 'PAUSED') {
-        await activatePost(post.meta_post_id);
-        setToast({ type: 'success', message: 'Post aktywowany' });
+        await pausePost(post.id);
+      } else {
+        await activatePost(post.id);
       }
-      loadData();
+      load();
     } catch (err) {
-      setToast({ type: 'error', message: `Błąd: ${err}` });
-    } finally {
-      setTimeout(() => setToast(null), 3000);
+      alert(err instanceof Error ? err.message : 'Błąd');
     }
   };
 
-  const handleManualSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualForm.restaurant_id || !manualForm.post_id) {
-      setToast({ type: 'error', message: 'Wypełnij wymagane pola' });
-      return;
-    }
+  if (loading) return <div className="loading">Ładowanie...</div>;
 
-    setSubmitting(true);
-    try {
-      await addManualPost(manualForm);
-      setToast({ type: 'success', message: 'Post dodany i przetworzony!' });
-      setShowManualForm(false);
-      setManualForm(prev => ({ ...prev, post_id: '', content: '' }));
-      loadData();
-    } catch (err) {
-      setToast({ type: 'error', message: `Błąd: ${err}` });
-    } finally {
-      setSubmitting(false);
-      setTimeout(() => setToast(null), 5000);
-    }
-  };
-
-  const getRestaurantName = (id: string) => {
-    const r = restaurants.find((r) => r.id === id);
-    return r?.name || 'Nieznana';
-  };
-
-  const filteredPosts = posts.filter((p) => {
-    if (filter !== 'all' && p.status !== filter) return false;
-    if (restaurantFilter !== 'all' && p.restaurant_id !== restaurantFilter) return false;
-    return true;
-  });
-
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-        Ładowanie...
-      </div>
-    );
-  }
+  const filtered = filter ? posts.filter(p => p.restaurant_id === filter) : posts;
+  const getRestaurantName = (id: string) => restaurants.find(r => r.id === id)?.name || 'Nieznana';
+  const getAdSetName = (id: string | null) => id ? adSets.find(a => a.id === id)?.name || '-' : '-';
 
   return (
     <div>
-      <div className="page-header">
-        <h1 className="page-title">Historia postów</h1>
-        <p className="page-subtitle">Przeglądaj i zarządzaj reklamowanymi postami</p>
+      <div className="flex-between">
+        <h1>Reklamy ({posts.length})</h1>
+        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Anuluj' : '+ Dodaj post'}
+        </button>
       </div>
 
-      {/* Manual Post Form */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">🧪 Dodaj post manualnie (testowanie)</h2>
-          <button
-            className="btn btn-secondary btn-small"
-            onClick={() => setShowManualForm(!showManualForm)}
-          >
-            {showManualForm ? 'Schowaj' : 'Pokaż formularz'}
-          </button>
-        </div>
-        
-        {showManualForm && (
-          <form onSubmit={handleManualSubmit}>
-            <div className="form-row">
+      {showForm && (
+        <div className="card">
+          <h2>Dodaj post ręcznie</h2>
+          {error && <div className="error" style={{ color: 'red', marginBottom: 10, whiteSpace: 'pre-wrap' }}>{error}</div>}
+          <form onSubmit={handleSubmit}>
+            <div className="grid-2">
               <div className="form-group">
-                <label className="form-label">Restauracja *</label>
-                <select
-                  className="form-select"
-                  value={manualForm.restaurant_id}
-                  onChange={(e) => setManualForm({ ...manualForm, restaurant_id: e.target.value })}
-                  required
-                >
-                  <option value="">Wybierz restaurację...</option>
-                  {restaurants.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
-                  ))}
+                <label>Restauracja</label>
+                <select value={form.restaurant_id} onChange={e => setForm({...form, restaurant_id: e.target.value})} required>
+                  <option value="">Wybierz...</option>
+                  {restaurants.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Post ID (Meta) *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={manualForm.post_id}
-                  onChange={(e) => setManualForm({ ...manualForm, post_id: e.target.value })}
-                  placeholder="122110386309149400"
-                  required
-                />
+                <label>Post ID (Facebook)</label>
+                <input value={form.post_id} onChange={e => setForm({...form, post_id: e.target.value})} placeholder="np. 123456789012345" required />
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Treść posta (do kategoryzacji LLM)</label>
-              <textarea
-                className="form-input"
-                value={manualForm.content}
-                onChange={(e) => setManualForm({ ...manualForm, content: e.target.value })}
-                placeholder="Wklej treść posta, aby LLM mógł go skategoryzować..."
-                rows={4}
-                style={{ resize: 'vertical' }}
-              />
+              <label>Treść posta (do kategoryzacji)</label>
+              <textarea value={form.content} onChange={e => setForm({...form, content: e.target.value})} rows={3} required />
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={submitting || restaurants.length === 0}
-              >
-                {submitting ? 'Przetwarzanie...' : '🚀 Dodaj i przetwórz post'}
-              </button>
-              {restaurants.length === 0 && (
-                <span style={{ color: 'var(--warning)', alignSelf: 'center' }}>
-                  ⚠️ Najpierw dodaj restaurację
-                </span>
-              )}
-            </div>
+            <button type="submit" className="btn btn-primary">Dodaj i przetwórz</button>
           </form>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Posty ({filteredPosts.length})</h2>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <select
-              className="form-select"
-              value={restaurantFilter}
-              onChange={(e) => setRestaurantFilter(e.target.value)}
-              style={{ width: 200 }}
-            >
-              <option value="all">Wszystkie restauracje</option>
-              {restaurants.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-            <select
-              className="form-select"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              style={{ width: 150 }}
-            >
-              <option value="all">Wszystkie</option>
-              <option value="ACTIVE">Aktywne</option>
-              <option value="PENDING">Oczekujące</option>
-              <option value="PAUSED">Wstrzymane</option>
-              <option value="EXPIRED">Wygaszone</option>
-            </select>
-          </div>
-        </div>
-
-        {filteredPosts.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📭</div>
-            <p>Brak postów. Użyj formularza powyżej, aby dodać post manualnie.</p>
-          </div>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Restauracja</th>
-                  <th>Post ID</th>
-                  <th>Kategoria</th>
-                  <th>Event</th>
-                  <th>Koniec promo</th>
-                  <th>Status</th>
-                  <th>Data</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPosts.map((post) => (
-                  <tr key={post.id}>
-                    <td style={{ fontWeight: 500 }}>
-                      {getRestaurantName(post.restaurant_id)}
-                    </td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>
-                      ...{post.meta_post_id.slice(-10)}
-                    </td>
-                    <td>
-                      <span className="badge badge-neutral">{post.category_code || '-'}</span>
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      {post.event_date || '-'}
-                    </td>
-                    <td>
-                      {post.promotion_end_date ? (
-                        <span style={{
-                          color: new Date(post.promotion_end_date) < new Date() 
-                            ? 'var(--danger)' 
-                            : 'var(--text-primary)'
-                        }}>
-                          {post.promotion_end_date}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td>
-                      <span className={`badge ${
-                        post.status === 'ACTIVE' ? 'badge-success' :
-                        post.status === 'PENDING' ? 'badge-warning' :
-                        post.status === 'EXPIRED' ? 'badge-neutral' : 'badge-danger'
-                      }`}>
-                        {post.status}
-                      </span>
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      {new Date(post.created_at).toLocaleDateString('pl')}
-                    </td>
-                    <td>
-                      {(post.status === 'ACTIVE' || post.status === 'PAUSED') && (
-                        <button
-                          className="btn btn-secondary btn-small"
-                          onClick={() => togglePostStatus(post)}
-                        >
-                          {post.status === 'ACTIVE' ? 'Wstrzymaj' : 'Aktywuj'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Szczegóły treści</h2>
-        </div>
-        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-          {filteredPosts.slice(0, 5).map((post) => (
-            <div
-              key={post.id}
-              style={{
-                padding: 16,
-                borderBottom: '1px solid var(--border)',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                  {getRestaurantName(post.restaurant_id)} • {post.category_code}
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                  {new Date(post.created_at).toLocaleString('pl')}
-                </span>
-              </div>
-              <p style={{ 
-                color: 'var(--text-secondary)', 
-                fontSize: '0.9375rem',
-                whiteSpace: 'pre-wrap',
-                lineHeight: 1.5,
-              }}>
-                {post.content || '(brak treści)'}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {toast && (
-        <div className={`toast toast-${toast.type}`}>
-          {toast.message}
         </div>
       )}
+
+      <div className="card">
+        <div className="flex-between" style={{ marginBottom: 15 }}>
+          <h2>Lista reklam ({filtered.length})</h2>
+          <select value={filter} onChange={e => setFilter(e.target.value)} className="filter-select">
+            <option value="">Wszystkie</option>
+            {restaurants.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="empty">Brak reklam{filter ? ' dla wybranej restauracji' : ''}</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Restauracja</th>
+                <th>Post ID</th>
+                <th>Kategoria</th>
+                <th>Ad Set</th>
+                <th>Status</th>
+                <th>Data końca</th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(p => (
+                <tr key={p.id}>
+                  <td>{getRestaurantName(p.restaurant_id)}</td>
+                  <td><code>{p.meta_post_id?.slice(-10)}</code></td>
+                  <td><code>{p.category_code || '-'}</code></td>
+                  <td><code>{getAdSetName(p.ad_set_id)}</code></td>
+                  <td>
+                    <span className={`badge badge-${
+                      p.status === 'ACTIVE' ? 'success' : 
+                      p.status === 'PAUSED' ? 'secondary' : 
+                      p.status === 'PENDING' ? 'warning' : 'danger'
+                    }`}>
+                      {p.status}
+                    </span>
+                  </td>
+                  <td>{p.promotion_end_date || '-'}</td>
+                  <td className="flex">
+                    {p.status === 'PENDING' && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => handleRetry(p.id)}>Ponów</button>
+                    )}
+                    {p.meta_ad_id && p.status !== 'PENDING' && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => handleToggle(p)}>
+                        {p.status === 'ACTIVE' ? 'Pauza' : 'Włącz'}
+                      </button>
+                    )}
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Usuń</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
