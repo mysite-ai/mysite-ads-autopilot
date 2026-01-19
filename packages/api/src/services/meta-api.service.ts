@@ -62,18 +62,23 @@ export class MetaApiService {
     return data;
   }
 
-  async createCampaign(restaurantName: string): Promise<string> {
-    const url = `${META_API_BASE}/act_${this.adAccountId}/campaigns`;
-    const result = await this.request<MetaApiResponse>(url, 'POST', {
-      name: restaurantName,
-      objective: 'OUTCOME_ENGAGEMENT',
-      status: 'PAUSED',
-      special_ad_categories: [],
-    });
-    
-    if (!result.id) throw new Error('Failed to create campaign');
-    this.logger.log(`Created campaign: ${result.id} for ${restaurantName}`);
-    return result.id;
+  async createCampaign(restaurantName: string): Promise<string | null> {
+    try {
+      const url = `${META_API_BASE}/act_${this.adAccountId}/campaigns`;
+      const result = await this.request<MetaApiResponse>(url, 'POST', {
+        name: restaurantName,
+        objective: 'OUTCOME_TRAFFIC',
+        status: 'PAUSED',
+        special_ad_categories: [],
+      });
+      
+      if (!result.id) throw new Error('Failed to create campaign');
+      this.logger.log(`Created campaign: ${result.id} for ${restaurantName}`);
+      return result.id;
+    } catch (error) {
+      this.logger.error(`Failed to create campaign for ${restaurantName}: ${error}`);
+      return null;
+    }
   }
 
   async createAdSet(params: {

@@ -33,11 +33,15 @@ export class RestaurantsService {
   }
 
   async create(dto: CreateRestaurantDto): Promise<Restaurant> {
-    // Create campaign in Meta Ads
+    // Try to create campaign in Meta Ads (optional - can fail)
     const campaignId = await this.metaApi.createCampaign(dto.name);
-    this.logger.log(`Created Meta campaign ${campaignId} for ${dto.name}`);
+    if (campaignId) {
+      this.logger.log(`Created Meta campaign ${campaignId} for ${dto.name}`);
+    } else {
+      this.logger.warn(`Skipping Meta campaign creation for ${dto.name} - will need to be created manually`);
+    }
 
-    // Save restaurant with campaign ID
+    // Save restaurant with or without campaign ID
     return this.supabase.createRestaurant({
       ...dto,
       meta_campaign_id: campaignId,
