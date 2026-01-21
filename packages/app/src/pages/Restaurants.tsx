@@ -98,13 +98,20 @@ export default function Restaurants() {
   return (
     <div>
       <div className="flex-between">
-        <h1>Restauracje</h1>
+        <h1>1. Restauracje</h1>
         <button className="btn btn-primary" onClick={() => { 
           if (showForm) closeForm(); 
           else setShowForm(true); 
         }}>
           {showForm ? 'Anuluj' : '+ Dodaj'}
         </button>
+      </div>
+
+      {/* CONTEXT */}
+      <div style={{ marginBottom: 20, padding: 12, background: '#f8fafc', borderRadius: 6, fontSize: 13, color: '#666' }}>
+        <strong>Co to jest:</strong> Restauracja to podstawowy element systemu. Każda restauracja ma unikalny <strong>RID</strong> (Restaurant ID) i <strong>slug</strong> (nazwa URL).
+        Po dodaniu automatycznie tworzona jest <strong>Kampania Meta</strong> o nazwie <code>{'{RID}'}-{'{slug}'}</code>.
+        <br/><strong>Wymagane:</strong> Lokalizacja (lat/lng) jest wymagana do tworzenia reklam (geo-targeting).
       </div>
 
       {showForm && (

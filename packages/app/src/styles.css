@@ -49,6 +49,20 @@ body {
   color: #000;
 }
 
+/* Nav Groups */
+.nav-group {
+  margin-bottom: 15px;
+}
+
+.nav-group-title {
+  padding: 8px 20px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #999;
+  letter-spacing: 0.5px;
+}
+
 /* Main */
 main {
   flex: 1;

@@ -172,10 +172,19 @@ export default function Opportunities() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Opportunities</h1>
+        <h1>2. Okazje marketingowe (PK)</h1>
         <button className="btn btn-primary" onClick={() => setShowForm(true)}>
-          + New Opportunity
+          + Nowa okazja
         </button>
+      </div>
+
+      {/* CONTEXT */}
+      <div style={{ marginBottom: 20, padding: 12, background: '#f8fafc', borderRadius: 6, fontSize: 13, color: '#666' }}>
+        <strong>Co to jest:</strong> Okazja (Opportunity) to "kampania marketingowa" dla restauracji - np. promocja walentynkowa, lunch deal, koncert.
+        Każda okazja ma unikalny <strong>PK</strong> (Opportunity Key) używany do atrybucji.
+        <br/><strong>Skąd się bierze:</strong> System tworzy okazje automatycznie gdy LLM kategoryzuje post (np. post o lunchu → okazja typu "lunch").
+        Możesz też tworzyć ręcznie.
+        <br/><strong>Powiązania:</strong> Okazja → wiele Ad Setów → wiele Reklam. Ten sam PK łączy wszystkie elementy.
       </div>
 
       {error && <div className="error-message">{error}</div>}

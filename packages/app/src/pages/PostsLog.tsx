@@ -78,10 +78,18 @@ export default function PostsLog() {
   return (
     <div>
       <div className="flex-between">
-        <h1>Reklamy ({posts.length})</h1>
+        <h1>4. Reklamy ({posts.length})</h1>
         <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
           {showForm ? 'Anuluj' : '+ Dodaj post'}
         </button>
+      </div>
+
+      {/* CONTEXT */}
+      <div style={{ marginBottom: 20, padding: 12, background: '#f8fafc', borderRadius: 6, fontSize: 13, color: '#666' }}>
+        <strong>Co to jest:</strong> Reklama to promowany post FB. System bierze istniejący post z FB i tworzy z niego reklamę w Meta Ads.
+        <br/><strong>Flow:</strong> Wklejasz Post ID + treść → LLM kategoryzuje (np. "LU_ONS") → system tworzy Okazję (PK) → tworzy Ad Set → tworzy Creative + Ad z URL tracking.
+        <br/><strong>Powiązania:</strong> Reklama należy do: Restauracji (RID) → Okazji (PK) → Ad Setu → i ma własne Meta IDs (post, creative, ad).
+        <br/><strong>URL Tracking:</strong> Każda reklama ma parametry <code>r={'{RID}'}&c=.pi1.pk{'{PK}'}.ps{'{{'+'ad.id}}'}&utm_*</code>
       </div>
 
       {showForm && (

@@ -102,13 +102,21 @@ export default function AdSetConfig() {
 
   return (
     <div>
-      <h1>Ad Sety</h1>
+      <h1>3. Ad Sety</h1>
+
+      {/* CONTEXT */}
+      <div style={{ marginBottom: 20, padding: 12, background: '#f8fafc', borderRadius: 6, fontSize: 13, color: '#666' }}>
+        <strong>Co to jest:</strong> Ad Set to "zestaw reklam" w Meta Ads z konkretnym targetowaniem (wiek, płeć, lokalizacja, zainteresowania).
+        <br/><strong>Nazwa:</strong> <code>pk{'{PK}'}_{'{kategoria}'}_v{'{wersja}'}</code> - np. <code>pk5_LU_ONS_v1</code> = Okazja 5, Lunch na miejscu, wersja 1.
+        <br/><strong>Skąd się bierze:</strong> System tworzy Ad Set automatycznie gdy dodajesz reklamę. Szablon kategorii (LU_ONS, PR_DEL itd.) określa targetowanie.
+        <br/><strong>Powiązania:</strong> Ad Set należy do Restauracji + Okazji (PK) + Kategorii.
+      </div>
 
       {/* Kategorie z targetowaniem */}
       <div className="card">
         <h2>Szablony kategorii ({categories.length})</h2>
         <p style={{ fontSize: 13, color: '#666', marginBottom: 15 }}>
-          Ustaw domyślne targetowanie dla każdej kategorii. Nowe ad sety będą używać tych ustawień.
+          Kategorie to szablony targetowania. LLM kategoryzuje post → system używa odpowiedniego szablonu do stworzenia Ad Setu.
         </p>
         
         <table>
