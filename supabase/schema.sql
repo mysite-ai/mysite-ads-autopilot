@@ -235,10 +235,10 @@ CREATE INDEX idx_audit_log_entity ON audit_log(entity_type, entity_id);
 -- =============================================
 -- HELPER FUNCTIONS
 -- =============================================
-CREATE OR REPLACE FUNCTION increment_ad_set_count(p_ad_set_id UUID)
+CREATE OR REPLACE FUNCTION increment_ad_set_count(ad_set_id UUID)
 RETURNS VOID AS $$
 BEGIN
-  UPDATE ad_sets SET ads_count = ads_count + 1 WHERE id = p_ad_set_id;
+  UPDATE ad_sets SET ads_count = ads_count + 1 WHERE id = ad_set_id;
 END;
 $$ LANGUAGE plpgsql;
 
