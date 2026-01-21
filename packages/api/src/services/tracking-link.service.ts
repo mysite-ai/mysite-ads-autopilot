@@ -89,6 +89,25 @@ export class TrackingLinkService {
   }
 
   /**
+   * Generate URL parameters string for Meta Ads (without destination URL)
+   * Used for Ad's url_tags parameter
+   * Returns: r=1&c=.pi1.pk2.ps{{ad.id}}&utm_source=mysite&utm_medium=meta&utm_campaign=pk2-slug&utm_content=cat-v1
+   */
+  generateMetaUrlParams(params: Omit<TrackingLinkParams, 'pi' | 'ps' | 'destinationUrl'>): string {
+    const { rid, pk, opportunitySlug, categoryCode, version } = params;
+
+    const urlParams = new URLSearchParams();
+    urlParams.set('r', String(rid));
+    urlParams.set('c', `.pi1.pk${pk}.ps{{ad.id}}`);
+    urlParams.set('utm_source', 'mysite');
+    urlParams.set('utm_medium', 'meta');
+    urlParams.set('utm_campaign', `pk${pk}-${opportunitySlug}`);
+    urlParams.set('utm_content', `${categoryCode}-v${version}`);
+
+    return urlParams.toString();
+  }
+
+  /**
    * Generate and save a tracking link to the database
    */
   async createAndSaveTrackingLink(

@@ -90,33 +90,16 @@ export class PostsService {
       throw new BadRequestException(`Nie udało się utworzyć Ad Set: ${msg}`);
     }
 
-    // === KROK 4: Wygeneruj tracking URL z {{ad.id}} makrem ===
-    let trackingUrl: string | undefined;
-    if (restaurant.website) {
-      const generated = this.trackingLinks.generateMetaTrackingLink({
-        rid: restaurant.rid,
-        pk: opportunity.pk,
-        destinationUrl: restaurant.website,
-        opportunitySlug: opportunity.slug,
-        categoryCode: categorization.category,
-        version: adSet.version,
-      });
-      trackingUrl = generated.finalUrl;
-      this.logger.log(`[4/6] ✅ Tracking URL: ${trackingUrl}`);
-    } else {
-      this.logger.log(`[4/6] ⚠️ Brak website - pomijam tracking URL`);
-    }
-
-    // === KROK 5: Tworzenie Creative z tracking URL ===
-    this.logger.log(`[5/6] Tworzenie Creative (object_story_id: ${restaurant.facebook_page_id}_${postId})...`);
+    // === KROK 4: Tworzenie Creative (bez tracking - tracking idzie w Ad URL params) ===
+    this.logger.log(`[4/6] Tworzenie Creative (object_story_id: ${restaurant.facebook_page_id}_${postId})...`);
     let creativeId: string;
     try {
       creativeId = await this.metaApi.createCreative({
         pageId: restaurant.facebook_page_id,
         postId,
-        websiteUrl: trackingUrl || restaurant.website || undefined,
+        websiteUrl: restaurant.website || undefined,
       });
-      this.logger.log(`[5/6] ✅ Creative ID: ${creativeId}`);
+      this.logger.log(`[4/6] ✅ Creative ID: ${creativeId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       
@@ -138,14 +121,30 @@ export class PostsService {
       throw new BadRequestException(`❌ Błąd Meta API przy tworzeniu Creative: ${msg}`);
     }
 
-    // === KROK 6: Utwórz reklamę z nowym nazewnictwem pk{PK}_{ad_id} ===
-    this.logger.log(`[6/6] Tworzenie reklamy pk${opportunity.pk}_...`);
+    // === KROK 5: Wygeneruj URL params dla trackingu ===
+    let urlParams: string | undefined;
+    if (restaurant.website) {
+      urlParams = this.trackingLinks.generateMetaUrlParams({
+        rid: restaurant.rid,
+        pk: opportunity.pk,
+        opportunitySlug: opportunity.slug,
+        categoryCode: categorization.category,
+        version: adSet.version,
+      });
+      this.logger.log(`[5/6] ✅ URL Params: ${urlParams}`);
+    } else {
+      this.logger.log(`[5/6] ⚠️ Brak website - pomijam tracking URL params`);
+    }
+
+    // === KROK 6: Utwórz reklamę z URL params (tracking) ===
+    this.logger.log(`[6/6] Tworzenie reklamy pk${opportunity.pk}_ z URL params...`);
     let adId: string;
     try {
       adId = await this.metaApi.createAd({
         adSetId: adSet.meta_ad_set_id!,
         creativeId,
         pk: opportunity.pk,
+        urlParams,
       });
       this.logger.log(`[6/6] ✅ Ad: pk${opportunity.pk}_${adId}`);
     } catch (error) {
@@ -210,7 +209,7 @@ export class PostsService {
     }
 
     this.logger.log(`[7/7] ✅ Zapisano post ${post.id}`);
-    this.logger.log(`🎉 POST PRZETWORZONY: ${postId} → pk=${opportunity.pk}, kategoria=${categorization.category}, ad=${adId}, trackingUrl=${trackingUrl || 'brak'}`);
+    this.logger.log(`🎉 POST PRZETWORZONY: ${postId} → pk=${opportunity.pk}, kategoria=${categorization.category}, ad=${adId}, urlParams=${urlParams ? 'tak' : 'brak'}`);
     
     return post;
   }

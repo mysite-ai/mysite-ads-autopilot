@@ -230,19 +230,35 @@ export class MetaApiService {
   
   /**
    * Create Ad with new naming convention: pk{PK}_{meta_ad_id}
-   * The name is updated after creation to include the actual ad_id
+   * Includes URL parameters for tracking (r, c, utm_*)
+   * The {{ad.id}} macro in URL params will be replaced by Meta with actual ad ID
    */
-  async createAd(params: { adSetId: string; creativeId: string; pk: number }): Promise<string> {
+  async createAd(params: { 
+    adSetId: string; 
+    creativeId: string; 
+    pk: number;
+    urlParams?: string;  // URL parameters string: r=1&c=.pi1.pk2.ps{{ad.id}}&utm_source=...
+  }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/ads`;
     
     // Create with temporary name first
     const tempName = this.generateAdName(params.pk, 'temp');
-    const result = await this.request<MetaApiResponse>(url, 'POST', {
+    
+    const body: Record<string, unknown> = {
       name: tempName,
       adset_id: params.adSetId,
       creative: { creative_id: params.creativeId },
       status: 'ACTIVE',
-    });
+    };
+
+    // Add URL parameters for tracking if provided
+    // url_tags will be appended to all outbound URLs in the ad
+    if (params.urlParams) {
+      body.url_tags = params.urlParams;
+      this.logger.log(`Ad URL params: ${params.urlParams}`);
+    }
+
+    const result = await this.request<MetaApiResponse>(url, 'POST', body);
 
     if (!result.id) throw new Error('Failed to create ad');
     
