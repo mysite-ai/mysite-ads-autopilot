@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react';
-import { getRestaurants, createRestaurant, deleteRestaurant, retryCampaignCreation } from '../api';
+import { getRestaurants, createRestaurant, updateRestaurant, deleteRestaurant, retryCampaignCreation } from '../api';
 import type { Restaurant } from '../types';
+
+const emptyForm = {
+  name: '',
+  website: '',
+  facebook_page_id: '',
+  instagram_account_id: '',
+  area: 'M-CITY' as 'S-CITY' | 'M-CITY' | 'L-CITY',
+  delivery_radius_km: 5,
+  lat: '',
+  lng: '',
+  address: '',
+};
 
 export default function Restaurants() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    website: '',
-    facebook_page_id: '',
-    instagram_account_id: '',
-    area: 'M-CITY' as 'S-CITY' | 'M-CITY' | 'L-CITY',
-    delivery_radius_km: 5,
-    lat: '',
-    lng: '',
-    address: '',
-  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm);
 
   const load = () => {
     setLoading(true);
@@ -36,7 +39,7 @@ export default function Restaurants() {
       return;
     }
     
-    await createRestaurant({
+    const data = {
       name: form.name,
       website: form.website || undefined,
       facebook_page_id: form.facebook_page_id,
@@ -44,10 +47,38 @@ export default function Restaurants() {
       area: form.area,
       delivery_radius_km: form.delivery_radius_km,
       location: { lat, lng, address: form.address },
-    });
-    setShowForm(false);
-    setForm({ name: '', website: '', facebook_page_id: '', instagram_account_id: '', area: 'M-CITY', delivery_radius_km: 5, lat: '', lng: '', address: '' });
+    };
+
+    if (editingId) {
+      await updateRestaurant(editingId, data);
+    } else {
+      await createRestaurant(data);
+    }
+    
+    closeForm();
     load();
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  };
+
+  const handleEdit = (r: Restaurant) => {
+    setEditingId(r.id);
+    setForm({
+      name: r.name,
+      website: r.website || '',
+      facebook_page_id: r.facebook_page_id,
+      instagram_account_id: r.instagram_account_id || '',
+      area: r.area,
+      delivery_radius_km: r.delivery_radius_km,
+      lat: r.location?.lat?.toString() || '',
+      lng: r.location?.lng?.toString() || '',
+      address: r.location?.address || '',
+    });
+    setShowForm(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -68,14 +99,17 @@ export default function Restaurants() {
     <div>
       <div className="flex-between">
         <h1>Restauracje</h1>
-        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+        <button className="btn btn-primary" onClick={() => { 
+          if (showForm) closeForm(); 
+          else setShowForm(true); 
+        }}>
           {showForm ? 'Anuluj' : '+ Dodaj'}
         </button>
       </div>
 
       {showForm && (
         <div className="card">
-          <h2>Nowa restauracja</h2>
+          <h2>{editingId ? 'Edytuj restaurację' : 'Nowa restauracja'}</h2>
           <form onSubmit={handleSubmit}>
             <div className="grid-2">
               <div className="form-group">
@@ -142,7 +176,16 @@ export default function Restaurants() {
                 />
               </div>
             </div>
-            <button type="submit" className="btn btn-primary">Zapisz</button>
+            <div className="flex" style={{ gap: '10px', marginTop: '1rem' }}>
+              <button type="submit" className="btn btn-primary">
+                {editingId ? 'Zapisz zmiany' : 'Dodaj restaurację'}
+              </button>
+              {editingId && (
+                <button type="button" className="btn btn-secondary" onClick={closeForm}>
+                  Anuluj
+                </button>
+              )}
+            </div>
           </form>
         </div>
       )}
@@ -178,6 +221,7 @@ export default function Restaurants() {
                       : <span className="badge badge-danger">Brak</span>}
                   </td>
                   <td className="flex">
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleEdit(r)}>Edytuj</button>
                     {!r.meta_campaign_id && (
                       <button className="btn btn-secondary btn-sm" onClick={() => handleRetry(r.id)}>Ponów</button>
                     )}
