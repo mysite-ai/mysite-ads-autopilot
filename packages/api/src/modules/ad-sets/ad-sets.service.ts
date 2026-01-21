@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SupabaseService, AdSet, AdSetCategory, Restaurant, Event } from '../../services/supabase.service';
+import { SupabaseService, AdSet, AdSetCategory, Restaurant, Event, Opportunity } from '../../services/supabase.service';
 import { MetaApiService } from '../../services/meta-api.service';
 
 interface TargetingTemplate {
@@ -34,6 +34,113 @@ export class AdSetsService {
     return this.supabase.getEvents(restaurantId);
   }
 
+  // =============================================
+  // NEW: Ad Set with Opportunity (PK) support
+  // =============================================
+
+  /**
+   * Get or create an ad set for a given opportunity (PK) and category
+   * Uses new naming convention: pk{PK}_{category_code}_v{version}
+   */
+  async getOrCreateAdSetWithPk(
+    restaurant: Restaurant,
+    opportunity: Opportunity,
+    categoryCode: string,
+    eventIdentifier?: string,
+  ): Promise<AdSet> {
+    // First try to find existing ad set with this PK and category
+    const existing = await this.supabase.getAdSetForCategoryAndPk(
+      restaurant.id,
+      categoryCode,
+      opportunity.pk,
+      eventIdentifier,
+    );
+
+    if (existing) {
+      this.logger.log(`Using existing ad set: ${existing.name} (pk=${opportunity.pk})`);
+      return existing;
+    }
+
+    return this.createAdSetWithPk(restaurant, opportunity, categoryCode, eventIdentifier);
+  }
+
+  /**
+   * Create a new ad set with PK-based naming
+   */
+  private async createAdSetWithPk(
+    restaurant: Restaurant,
+    opportunity: Opportunity,
+    categoryCode: string,
+    eventIdentifier?: string,
+  ): Promise<AdSet> {
+    const category = await this.supabase.getAdSetCategory(categoryCode);
+    if (!category) throw new Error(`Unknown category: ${categoryCode}`);
+    if (!restaurant.meta_campaign_id) throw new Error(`No campaign for ${restaurant.name}`);
+
+    // Get next version for this specific PK + category combination
+    const version = await this.supabase.getNextAdSetVersionForPk(restaurant.id, category.id, opportunity.pk);
+    
+    // Generate name: pk{PK}_{category_code}_v{version}
+    const adSetName = this.metaApi.generateAdSetName(opportunity.pk, categoryCode, version);
+
+    // Get targeting template from category
+    const template = (category.targeting_template || {}) as TargetingTemplate;
+
+    const radiusKm = category.requires_delivery
+      ? restaurant.delivery_radius_km
+      : this.getBaseRadiusKm(restaurant.area);
+
+    // Build targeting from category template
+    const targeting = this.metaApi.buildTargeting({
+      lat: restaurant.location.lat,
+      lng: restaurant.location.lng,
+      radiusKm,
+      includeInstagram: !!restaurant.instagram_account_id,
+      ageMin: template.age_min,
+      ageMax: template.age_max,
+      genders: template.genders,
+      interests: template.interests,
+    });
+
+    this.logger.log(`Creating ad set pk${opportunity.pk}_${categoryCode}_v${version} with targeting: age=${template.age_min || 18}-${template.age_max || 65}`);
+
+    // Create ad set in Meta with new naming convention
+    const metaAdSetId = await this.metaApi.createAdSet({
+      campaignId: restaurant.meta_campaign_id,
+      pk: opportunity.pk,
+      categoryCode,
+      version,
+      targeting,
+      dailyBudget: 10, // 10 PLN min
+      beneficiary: restaurant.name,
+      pageId: restaurant.facebook_page_id,
+    });
+
+    // Save to database with opportunity reference
+    const adSet = await this.supabase.createAdSet({
+      restaurant_id: restaurant.id,
+      category_id: category.id,
+      opportunity_id: opportunity.id,
+      pk: opportunity.pk,
+      meta_ad_set_id: metaAdSetId,
+      name: adSetName,
+      version,
+      ads_count: 0,
+      status: 'ACTIVE',
+      event_identifier: eventIdentifier || null,
+    });
+
+    this.logger.log(`Created ad set: ${adSetName} (meta_id: ${metaAdSetId})`);
+    return adSet;
+  }
+
+  // =============================================
+  // LEGACY: Ad Set without PK (for backward compatibility)
+  // =============================================
+
+  /**
+   * @deprecated Use getOrCreateAdSetWithPk instead
+   */
   async getOrCreateAdSet(
     restaurant: Restaurant,
     categoryCode: string,
@@ -50,10 +157,13 @@ export class AdSetsService {
       return existing;
     }
 
-    return this.createAdSet(restaurant, categoryCode, eventIdentifier);
+    return this.createAdSetLegacy(restaurant, categoryCode, eventIdentifier);
   }
 
-  private async createAdSet(
+  /**
+   * @deprecated Legacy ad set creation without PK
+   */
+  private async createAdSetLegacy(
     restaurant: Restaurant,
     categoryCode: string,
     eventIdentifier?: string,
@@ -65,33 +175,30 @@ export class AdSetsService {
     const version = await this.supabase.getNextAdSetVersion(restaurant.id, category.id);
     const adSetName = `${restaurant.code}_${categoryCode}_${version.toString().padStart(2, '0')}`;
 
-    // Pobierz szablon targetowania z kategorii
     const template = (category.targeting_template || {}) as TargetingTemplate;
 
     const radiusKm = category.requires_delivery
       ? restaurant.delivery_radius_km
       : this.getBaseRadiusKm(restaurant.area);
 
-    // Buduj targeting z szablonu kategorii
     const targeting = this.metaApi.buildTargeting({
       lat: restaurant.location.lat,
       lng: restaurant.location.lng,
       radiusKm,
       includeInstagram: !!restaurant.instagram_account_id,
-      // Parametry z szablonu kategorii
       ageMin: template.age_min,
       ageMax: template.age_max,
       genders: template.genders,
       interests: template.interests,
     });
 
-    this.logger.log(`Creating ad set with targeting: age=${template.age_min || 18}-${template.age_max || 65}, genders=${template.genders?.join(',') || 'all'}, interests=${template.interests?.length || 0}`);
+    this.logger.log(`Creating ad set (legacy): ${adSetName}`);
 
-    const metaAdSetId = await this.metaApi.createAdSet({
+    const metaAdSetId = await this.metaApi.createAdSetLegacy({
       campaignId: restaurant.meta_campaign_id,
       name: adSetName,
       targeting,
-      dailyBudget: 10, // 10 PLN min
+      dailyBudget: 10,
       beneficiary: restaurant.name,
       pageId: restaurant.facebook_page_id,
     });
@@ -107,7 +214,7 @@ export class AdSetsService {
       event_identifier: eventIdentifier || null,
     });
 
-    this.logger.log(`Created ad set: ${adSetName}`);
+    this.logger.log(`Created ad set (legacy): ${adSetName}`);
     return adSet;
   }
 

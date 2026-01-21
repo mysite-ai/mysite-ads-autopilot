@@ -2,8 +2,22 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+export type OfferType = 'event' | 'lunch' | 'promo' | 'product' | 'brand' | 'info';
+export type OpportunityStatus = 'draft' | 'active' | 'paused' | 'completed';
+export type OpportunityGoal = 'traffic' | 'leads' | 'orders' | 'awareness';
+
+export interface Platform {
+  pi: number;
+  name: string;
+  type: 'paid' | 'organic' | 'partner';
+  utm_medium: string;
+  created_at: string;
+}
+
 export interface Restaurant {
   id: string;
+  rid: number;
+  slug: string;
   name: string;
   code: string;
   website: string;
@@ -19,6 +33,21 @@ export interface Restaurant {
   created_at: string;
 }
 
+export interface Opportunity {
+  id: string;
+  pk: number;
+  rid: number;
+  name: string;
+  slug: string;
+  goal: OpportunityGoal;
+  offer_type: OfferType;
+  start_date: string | null;
+  end_date: string | null;
+  status: OpportunityStatus;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface AdSetCategory {
   id: string;
   code: string;
@@ -27,6 +56,7 @@ export interface AdSetCategory {
   targeting_template: Record<string, unknown>;
   requires_delivery: boolean;
   is_event_type: boolean;
+  offer_type: OfferType;
   created_at: string;
 }
 
@@ -34,6 +64,8 @@ export interface AdSet {
   id: string;
   restaurant_id: string;
   category_id: string;
+  opportunity_id: string | null;
+  pk: number | null;
   meta_ad_set_id: string | null;
   name: string;
   version: number;
@@ -47,6 +79,8 @@ export interface Post {
   id: string;
   restaurant_id: string;
   ad_set_id: string | null;
+  opportunity_id: string | null;
+  pk: number | null;
   meta_post_id: string;
   meta_ad_id: string | null;
   meta_creative_id: string | null;
@@ -66,6 +100,23 @@ export interface Event {
   identifier: string;
   name: string;
   event_date: string;
+  created_at: string;
+}
+
+export interface TrackingLink {
+  id: string;
+  rid: number;
+  pi: number;
+  pk: number;
+  ad_id: string | null;
+  destination_url: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_content: string | null;
+  utm_term: string | null;
+  c_param: string;
+  final_url: string;
   created_at: string;
 }
 
@@ -382,5 +433,195 @@ export class SupabaseService {
     const { data, error } = await this.client.from('events').insert(event).select().single();
     if (error) throw error;
     return data;
+  }
+
+  // =============================================
+  // PLATFORMS
+  // =============================================
+  async getPlatforms(): Promise<Platform[]> {
+    const cached = this.getCache<Platform[]>('platforms');
+    if (cached) return cached;
+
+    const { data, error } = await this.client
+      .from('platforms')
+      .select('*')
+      .order('pi');
+    if (error) throw error;
+    
+    const result = data || [];
+    this.setCache('platforms', result);
+    return result;
+  }
+
+  async getPlatform(pi: number): Promise<Platform | null> {
+    const platforms = await this.getPlatforms();
+    return platforms.find(p => p.pi === pi) || null;
+  }
+
+  // =============================================
+  // OPPORTUNITIES
+  // =============================================
+  async getOpportunities(rid?: number): Promise<Opportunity[]> {
+    const cacheKey = rid ? `opportunities:${rid}` : 'opportunities:all';
+    const cached = this.getCache<Opportunity[]>(cacheKey);
+    if (cached) return cached;
+
+    let query = this.client.from('opportunities').select('*');
+    if (rid) query = query.eq('rid', rid);
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    
+    const result = data || [];
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
+  async getOpportunity(id: string): Promise<Opportunity | null> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  }
+
+  async getOpportunityByPk(rid: number, pk: number): Promise<Opportunity | null> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('*')
+      .eq('rid', rid)
+      .eq('pk', pk)
+      .single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  }
+
+  async getActiveOpportunityByOfferType(rid: number, offerType: OfferType): Promise<Opportunity | null> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('*')
+      .eq('rid', rid)
+      .eq('offer_type', offerType)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  }
+
+  async createOpportunity(opportunity: Partial<Opportunity>): Promise<Opportunity> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .insert(opportunity)
+      .select()
+      .single();
+    if (error) throw error;
+    this.invalidateCache('opportunities');
+    return data;
+  }
+
+  async updateOpportunity(id: string, updates: Partial<Opportunity>): Promise<Opportunity> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    this.invalidateCache('opportunities');
+    return data;
+  }
+
+  async deleteOpportunity(id: string): Promise<void> {
+    const { error } = await this.client.from('opportunities').delete().eq('id', id);
+    if (error) throw error;
+    this.invalidateCache('opportunities');
+  }
+
+  async getNextOpportunityPk(rid: number): Promise<number> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('pk')
+      .eq('rid', rid)
+      .order('pk', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    return (data?.[0]?.pk || 0) + 1;
+  }
+
+  // =============================================
+  // TRACKING LINKS
+  // =============================================
+  async getTrackingLinks(rid?: number, pk?: number): Promise<TrackingLink[]> {
+    let query = this.client.from('tracking_links').select('*');
+    if (rid) query = query.eq('rid', rid);
+    if (pk) query = query.eq('pk', pk);
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  }
+
+  async createTrackingLink(link: Partial<TrackingLink>): Promise<TrackingLink> {
+    const { data, error } = await this.client
+      .from('tracking_links')
+      .insert(link)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  // =============================================
+  // UPDATED AD SET METHODS (with PK support)
+  // =============================================
+  async getAdSetForCategoryAndPk(
+    restaurantId: string,
+    categoryCode: string,
+    pk: number,
+    eventIdentifier?: string,
+  ): Promise<AdSet | null> {
+    const category = await this.getAdSetCategory(categoryCode);
+    if (!category) return null;
+
+    let query = this.client
+      .from('ad_sets')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .eq('category_id', category.id)
+      .eq('pk', pk)
+      .eq('status', 'ACTIVE')
+      .lt('ads_count', 50)
+      .order('version', { ascending: false });
+
+    if (eventIdentifier) {
+      query = query.eq('event_identifier', eventIdentifier);
+    } else {
+      query = query.is('event_identifier', null);
+    }
+
+    const { data, error } = await query.limit(1).single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  }
+
+  async getNextAdSetVersionForPk(restaurantId: string, categoryId: string, pk: number): Promise<number> {
+    const { data, error } = await this.client
+      .from('ad_sets')
+      .select('version')
+      .eq('restaurant_id', restaurantId)
+      .eq('category_id', categoryId)
+      .eq('pk', pk)
+      .order('version', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    return (data?.[0]?.version || 0) + 1;
+  }
+
+  // Get restaurant by rid (numeric ID)
+  async getRestaurantByRid(rid: number): Promise<Restaurant | null> {
+    const all = await this.getRestaurants();
+    return all.find(r => r.rid === rid) || null;
   }
 }

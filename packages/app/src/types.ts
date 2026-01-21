@@ -1,5 +1,7 @@
 export interface Restaurant {
   id: string;
+  rid: number;  // Numeric Restaurant ID for attribution
+  slug: string; // URL-safe slug for campaign naming
   name: string;
   code: string;
   website: string;
@@ -10,8 +12,38 @@ export interface Restaurant {
   facebook_page_id: string;
   instagram_account_id: string | null;
   meta_campaign_id: string | null;
+  meta_pixel_id: string | null;
   location: { lat: number; lng: number; address: string };
   created_at: string;
+}
+
+export type OfferType = 'event' | 'lunch' | 'promo' | 'product' | 'brand' | 'info';
+export type OpportunityStatus = 'draft' | 'active' | 'paused' | 'completed';
+export type OpportunityGoal = 'traffic' | 'leads' | 'orders' | 'awareness';
+
+export interface Opportunity {
+  id: string;
+  pk: number;  // Opportunity Key for attribution
+  rid: number; // Restaurant ID
+  name: string;
+  slug: string;
+  goal: OpportunityGoal;
+  offer_type: OfferType;
+  start_date: string | null;
+  end_date: string | null;
+  status: OpportunityStatus;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  // Joined fields
+  restaurant_name?: string;
+  ads_count?: number;
+}
+
+export interface Platform {
+  pi: number;
+  name: string;
+  type: 'paid' | 'organic' | 'partner';
+  utm_medium: string;
 }
 
 export interface TargetingTemplate {
@@ -29,6 +61,7 @@ export interface AdSetCategory {
   targeting_template: TargetingTemplate;
   requires_delivery: boolean;
   is_event_type: boolean;
+  offer_type: OfferType;
   created_at: string;
 }
 
@@ -36,19 +69,26 @@ export interface AdSet {
   id: string;
   restaurant_id: string;
   category_id: string;
+  opportunity_id: string | null;
+  pk: number | null;  // Opportunity Key for attribution
   meta_ad_set_id: string | null;
-  name: string;
+  name: string;  // Format: pk{PK}_{category_code}_v{n}
   version: number;
   ads_count: number;
   status: 'ACTIVE' | 'PAUSED';
   event_identifier: string | null;
   created_at: string;
+  // Joined fields
+  category_code?: string;
+  opportunity_name?: string;
 }
 
 export interface Post {
   id: string;
   restaurant_id: string;
   ad_set_id: string | null;
+  opportunity_id: string | null;
+  pk: number | null;  // Opportunity Key for attribution
   meta_post_id: string;
   meta_ad_id: string | null;
   meta_creative_id: string | null;
@@ -58,6 +98,25 @@ export interface Post {
   promotion_end_date: string | null;
   status: 'PENDING' | 'ACTIVE' | 'PAUSED' | 'EXPIRED';
   ayrshare_payload: Record<string, unknown>;
+  created_at: string;
+  // Joined fields
+  opportunity_name?: string;
+}
+
+export interface TrackingLink {
+  id: string;
+  rid: number;
+  pi: number;
+  pk: number;
+  ad_id: string | null;
+  destination_url: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_content: string | null;
+  utm_term: string | null;
+  c_param: string;
+  final_url: string;
   created_at: string;
 }
 
@@ -71,9 +130,24 @@ export interface Event {
   created_at: string;
 }
 
-export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'meta_campaign_id' | 'created_at'> & {
+export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'rid' | 'meta_campaign_id' | 'meta_pixel_id' | 'created_at'> & {
   meta_campaign_id?: string | null;
+  meta_pixel_id?: string | null;
+  slug?: string;  // Optional - auto-generated from name if not provided
 };
+
+export type CreateOpportunityDto = Omit<Opportunity, 'id' | 'pk' | 'created_at' | 'restaurant_name' | 'ads_count'>;
+
+export interface TrackingLinkParams {
+  rid: number;
+  pi: number;
+  pk: number;
+  ps: string;  // Placement/Single Unit ID ({{ad.id}} for Meta)
+  destinationUrl: string;
+  opportunitySlug: string;
+  categoryCode: string;
+  version: number;
+}
 
 // Predefiniowane zainteresowania Meta dla restauracji
 export const RESTAURANT_INTERESTS = [

@@ -9,6 +9,12 @@ interface MetaApiResponse {
   error?: { message: string; error_user_msg?: string };
 }
 
+/**
+ * Naming conventions for Meta Ads:
+ * - Campaign: {RID}-{slug}
+ * - Ad Set: pk{PK}_{category_code}_v{version}
+ * - Ad: pk{PK}_{meta_ad_id}
+ */
 @Injectable()
 export class MetaApiService {
   private readonly logger = new Logger(MetaApiService.name);
@@ -47,8 +53,61 @@ export class MetaApiService {
     return data;
   }
 
-  // Kampania TRAFFIC - cel: wizyty na profilu FB/IG (nie wymaga pixela!)
-  async createCampaign(restaurantName: string): Promise<string> {
+  // =============================================
+  // NAMING HELPERS
+  // =============================================
+  
+  /**
+   * Generate campaign name: {RID}-{slug}
+   */
+  generateCampaignName(rid: number, slug: string): string {
+    return `${rid}-${slug}`;
+  }
+
+  /**
+   * Generate ad set name: pk{PK}_{category_code}_v{version}
+   */
+  generateAdSetName(pk: number, categoryCode: string, version: number): string {
+    return `pk${pk}_${categoryCode}_v${version}`;
+  }
+
+  /**
+   * Generate ad name: pk{PK}_{meta_ad_id}
+   * Note: meta_ad_id is added after creation, so initial name uses placeholder
+   */
+  generateAdName(pk: number, adId?: string): string {
+    return `pk${pk}_${adId || 'pending'}`;
+  }
+
+  // =============================================
+  // CAMPAIGN OPERATIONS
+  // =============================================
+  
+  /**
+   * Create campaign with new naming convention: {RID}-{slug}
+   * TRAFFIC objective - visits to FB/IG profile (no pixel required)
+   */
+  async createCampaign(rid: number, slug: string): Promise<string> {
+    const campaignName = this.generateCampaignName(rid, slug);
+    const url = `${META_API_BASE}/act_${this.adAccountId}/campaigns`;
+    const result = await this.request<MetaApiResponse>(url, 'POST', {
+      name: campaignName,
+      objective: 'OUTCOME_TRAFFIC',
+      status: 'PAUSED',
+      special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false,
+    });
+    
+    if (!result.id) throw new Error('Failed to create campaign');
+    this.logger.log(`Created campaign: ${result.id} (name: ${campaignName})`);
+    return result.id;
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated Use createCampaign(rid, slug) instead
+   */
+  async createCampaignLegacy(restaurantName: string): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/campaigns`;
     const result = await this.request<MetaApiResponse>(url, 'POST', {
       name: restaurantName,
@@ -59,12 +118,54 @@ export class MetaApiService {
     });
     
     if (!result.id) throw new Error('Failed to create campaign');
-    this.logger.log(`Created campaign: ${result.id}`);
+    this.logger.log(`Created campaign (legacy): ${result.id}`);
     return result.id;
   }
 
-  // Ad Set z celem LINK_CLICKS (nie wymaga pixela!)
+  // =============================================
+  // AD SET OPERATIONS
+  // =============================================
+  
+  /**
+   * Create Ad Set with new naming convention: pk{PK}_{category_code}_v{version}
+   * LINK_CLICKS objective (no pixel required)
+   */
   async createAdSet(params: {
+    campaignId: string;
+    pk: number;
+    categoryCode: string;
+    version: number;
+    targeting: Record<string, unknown>;
+    dailyBudget: number;
+    beneficiary: string;
+    pageId: string;
+  }): Promise<string> {
+    const adSetName = this.generateAdSetName(params.pk, params.categoryCode, params.version);
+    const url = `${META_API_BASE}/act_${this.adAccountId}/adsets`;
+    
+    const result = await this.request<MetaApiResponse>(url, 'POST', {
+      campaign_id: params.campaignId,
+      name: adSetName,
+      status: 'ACTIVE',
+      daily_budget: params.dailyBudget * 100, // grosze
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'LINK_CLICKS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: params.targeting,
+      dsa_beneficiary: params.beneficiary,
+      dsa_payor: this.agencyName,
+    });
+
+    if (!result.id) throw new Error('Failed to create ad set');
+    this.logger.log(`Created ad set: ${result.id} (name: ${adSetName})`);
+    return result.id;
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated Use createAdSet with pk, categoryCode, version instead
+   */
+  async createAdSetLegacy(params: {
     campaignId: string;
     name: string;
     targeting: Record<string, unknown>;
@@ -78,7 +179,7 @@ export class MetaApiService {
       campaign_id: params.campaignId,
       name: params.name,
       status: 'ACTIVE',
-      daily_budget: params.dailyBudget * 100, // grosze
+      daily_budget: params.dailyBudget * 100,
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
@@ -88,7 +189,7 @@ export class MetaApiService {
     });
 
     if (!result.id) throw new Error('Failed to create ad set');
-    this.logger.log(`Created ad set: ${result.id}`);
+    this.logger.log(`Created ad set (legacy): ${result.id}`);
     return result.id;
   }
 
@@ -123,7 +224,41 @@ export class MetaApiService {
     return result.id;
   }
 
-  async createAd(params: { adSetId: string; creativeId: string; name: string }): Promise<string> {
+  // =============================================
+  // AD OPERATIONS
+  // =============================================
+  
+  /**
+   * Create Ad with new naming convention: pk{PK}_{meta_ad_id}
+   * The name is updated after creation to include the actual ad_id
+   */
+  async createAd(params: { adSetId: string; creativeId: string; pk: number }): Promise<string> {
+    const url = `${META_API_BASE}/act_${this.adAccountId}/ads`;
+    
+    // Create with temporary name first
+    const tempName = this.generateAdName(params.pk, 'temp');
+    const result = await this.request<MetaApiResponse>(url, 'POST', {
+      name: tempName,
+      adset_id: params.adSetId,
+      creative: { creative_id: params.creativeId },
+      status: 'ACTIVE',
+    });
+
+    if (!result.id) throw new Error('Failed to create ad');
+    
+    // Update with the actual ad_id in the name
+    const finalName = this.generateAdName(params.pk, result.id);
+    await this.request(`${META_API_BASE}/${result.id}`, 'POST', { name: finalName });
+    
+    this.logger.log(`Created ad: ${result.id} (name: ${finalName})`);
+    return result.id;
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated Use createAd with pk instead
+   */
+  async createAdLegacy(params: { adSetId: string; creativeId: string; name: string }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/ads`;
     const result = await this.request<MetaApiResponse>(url, 'POST', {
       name: params.name,
@@ -133,6 +268,7 @@ export class MetaApiService {
     });
 
     if (!result.id) throw new Error('Failed to create ad');
+    this.logger.log(`Created ad (legacy): ${result.id}`);
     return result.id;
   }
 

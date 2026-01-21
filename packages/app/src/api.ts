@@ -1,4 +1,8 @@
-import type { Restaurant, AdSetCategory, AdSet, Post, Event, CreateRestaurantDto } from './types';
+import type { 
+  Restaurant, AdSetCategory, AdSet, Post, Event, 
+  CreateRestaurantDto, Opportunity, CreateOpportunityDto,
+  Platform, TrackingLink, TrackingLinkParams
+} from './types';
 
 const API_BASE = '/api';
 
@@ -58,3 +62,60 @@ export const deletePost = (id: string) =>
 // Scheduler
 export const triggerExpirePosts = () =>
   fetchApi<{ total: number; success: number; failed: number }>('/scheduler/expire-posts', { method: 'POST' });
+
+// =============================================
+// OPPORTUNITIES
+// =============================================
+export const getOpportunities = (rid?: number) =>
+  fetchApi<Opportunity[]>(`/opportunities${rid ? `?rid=${rid}` : ''}`);
+
+export const getOpportunity = (id: string) =>
+  fetchApi<Opportunity>(`/opportunities/${id}`);
+
+export const createOpportunity = (data: CreateOpportunityDto) =>
+  fetchApi<Opportunity>('/opportunities', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateOpportunity = (id: string, data: Partial<CreateOpportunityDto>) =>
+  fetchApi<Opportunity>(`/opportunities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const deleteOpportunity = (id: string) =>
+  fetchApi<{ success: boolean }>(`/opportunities/${id}`, { method: 'DELETE' });
+
+// =============================================
+// TRACKING LINKS
+// =============================================
+export const getTrackingLinks = (rid?: number, pk?: number) => {
+  const params = new URLSearchParams();
+  if (rid) params.set('rid', String(rid));
+  if (pk) params.set('pk', String(pk));
+  const query = params.toString();
+  return fetchApi<TrackingLink[]>(`/tracking-links${query ? `?${query}` : ''}`);
+};
+
+export const getPlatforms = () =>
+  fetchApi<Platform[]>('/tracking-links/platforms');
+
+export interface GeneratedLink {
+  finalUrl: string;
+  components: {
+    r: string;
+    c: string;
+    utm_source: string;
+    utm_medium: string;
+    utm_campaign: string;
+    utm_content: string;
+  };
+  saved?: boolean;
+}
+
+export const generateTrackingLink = (data: TrackingLinkParams & { save?: boolean }) =>
+  fetchApi<GeneratedLink>('/tracking-links/generate', { method: 'POST', body: JSON.stringify(data) });
+
+export const generateMetaTrackingLink = (data: Omit<TrackingLinkParams, 'pi' | 'ps'> & { save?: boolean }) =>
+  fetchApi<GeneratedLink>('/tracking-links/generate-meta', { method: 'POST', body: JSON.stringify(data) });
+
+export const parseTrackingUrl = (url: string) =>
+  fetchApi<Record<string, string | undefined>>('/tracking-links/parse', { method: 'POST', body: JSON.stringify({ url }) });
+
+export const validateTrackingUrl = (url: string) =>
+  fetchApi<{ valid: boolean; errors: string[] }>('/tracking-links/validate', { method: 'POST', body: JSON.stringify({ url }) });

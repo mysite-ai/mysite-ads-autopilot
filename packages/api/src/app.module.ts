@@ -4,11 +4,14 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { RestaurantsModule } from './modules/restaurants/restaurants.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { AdSetsModule } from './modules/ad-sets/ad-sets.module';
+import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
+import { TrackingLinksModule } from './modules/tracking-links/tracking-links.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SupabaseService } from './services/supabase.service';
 import { MetaApiService } from './services/meta-api.service';
 import { LlmService } from './services/llm.service';
+import { TrackingLinkService } from './services/tracking-link.service';
 
 @Module({
   imports: [
@@ -17,10 +20,12 @@ import { LlmService } from './services/llm.service';
     RestaurantsModule,
     PostsModule,
     AdSetsModule,
+    OpportunitiesModule,
+    TrackingLinksModule,
     WebhookModule,
     SchedulerModule,
   ],
-  providers: [SupabaseService, MetaApiService, LlmService],
-  exports: [SupabaseService, MetaApiService, LlmService],
+  providers: [SupabaseService, MetaApiService, LlmService, TrackingLinkService],
+  exports: [SupabaseService, MetaApiService, LlmService, TrackingLinkService],
 })
 export class AppModule {}
