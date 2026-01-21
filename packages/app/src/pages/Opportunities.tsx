@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { 
   getOpportunities, createOpportunity, updateOpportunity, deleteOpportunity,
-  getRestaurants 
+  getRestaurants, getAdSets, getPosts
 } from '../api';
-import type { Opportunity, Restaurant, OfferType, OpportunityStatus, OpportunityGoal } from '../types';
+import type { Opportunity, Restaurant, AdSet, Post, OfferType, OpportunityStatus, OpportunityGoal } from '../types';
 
 const OFFER_TYPES: { value: OfferType; label: string }[] = [
   { value: 'event', label: 'Event' },
@@ -31,6 +31,8 @@ const STATUSES: { value: OpportunityStatus; label: string; color: string }[] = [
 export default function Opportunities() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [adSets, setAdSets] = useState<AdSet[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -60,12 +62,16 @@ export default function Opportunities() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [opps, rests] = await Promise.all([
+      const [opps, rests, sets, psts] = await Promise.all([
         getOpportunities(filterRid || undefined),
         getRestaurants(),
+        getAdSets(),
+        getPosts(),
       ]);
       setOpportunities(opps);
       setRestaurants(rests);
+      setAdSets(sets);
+      setPosts(psts);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -152,9 +158,10 @@ export default function Opportunities() {
     });
   };
 
-  const getRestaurantName = (rid: number) => {
-    return restaurants.find(r => r.rid === rid)?.name || `RID: ${rid}`;
-  };
+  const getRestaurant = (rid: number) => restaurants.find(r => r.rid === rid);
+  
+  const getLinkedAdSets = (pk: number) => adSets.filter(a => a.pk === pk);
+  const getLinkedPosts = (pk: number) => posts.filter(p => p.pk === pk);
 
   const getStatusColor = (status: OpportunityStatus) => {
     return STATUSES.find(s => s.value === status)?.color || '#6b7280';
@@ -327,44 +334,78 @@ export default function Opportunities() {
             <th>Name</th>
             <th>Type</th>
             <th>Goal</th>
+            <th>Linked Ad Sets</th>
+            <th>Linked Posts</th>
             <th>Status</th>
             <th>Dates</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {filteredOpportunities.map(opp => (
-            <tr key={opp.id}>
-              <td><strong>pk{opp.pk}</strong></td>
-              <td>{getRestaurantName(opp.rid)}</td>
-              <td>{opp.name}</td>
-              <td>
-                <span className="badge">{opp.offer_type}</span>
-              </td>
-              <td>{opp.goal}</td>
-              <td>
-                <span 
-                  className="status-badge"
-                  style={{ backgroundColor: getStatusColor(opp.status) }}
-                >
-                  {opp.status}
-                </span>
-              </td>
-              <td>
-                {opp.start_date && <span>{opp.start_date}</span>}
-                {opp.start_date && opp.end_date && <span> - </span>}
-                {opp.end_date && <span>{opp.end_date}</span>}
-                {!opp.start_date && !opp.end_date && <span className="text-muted">-</span>}
-              </td>
-              <td>
-                <button className="btn btn-sm" onClick={() => handleEdit(opp)}>Edit</button>
-                <button className="btn btn-sm btn-danger" onClick={() => handleDelete(opp.id)}>Delete</button>
-              </td>
-            </tr>
-          ))}
+          {filteredOpportunities.map(opp => {
+            const restaurant = getRestaurant(opp.rid);
+            const linkedAdSets = getLinkedAdSets(opp.pk);
+            const linkedPosts = getLinkedPosts(opp.pk);
+            
+            return (
+              <tr key={opp.id}>
+                <td><strong style={{ color: '#2563eb' }}>pk{opp.pk}</strong></td>
+                <td>
+                  <strong>{restaurant?.name || `RID: ${opp.rid}`}</strong>
+                  <div style={{ fontSize: 11, color: '#666' }}>
+                    rid={opp.rid} / {restaurant?.slug || '-'}
+                  </div>
+                </td>
+                <td>
+                  {opp.name}
+                  <div style={{ fontSize: 11, color: '#666' }}>
+                    slug: {opp.slug}
+                  </div>
+                </td>
+                <td>
+                  <span className="badge">{opp.offer_type}</span>
+                </td>
+                <td>{opp.goal}</td>
+                <td>
+                  <strong>{linkedAdSets.length}</strong>
+                  {linkedAdSets.length > 0 && (
+                    <div style={{ fontSize: 10, color: '#666' }}>
+                      {linkedAdSets.map(a => a.name).join(', ').slice(0, 30)}...
+                    </div>
+                  )}
+                </td>
+                <td>
+                  <strong>{linkedPosts.length}</strong>
+                  {linkedPosts.length > 0 && (
+                    <div style={{ fontSize: 10, color: '#666' }}>
+                      {linkedPosts.filter(p => p.status === 'ACTIVE').length} active
+                    </div>
+                  )}
+                </td>
+                <td>
+                  <span 
+                    className="status-badge"
+                    style={{ backgroundColor: getStatusColor(opp.status) }}
+                  >
+                    {opp.status}
+                  </span>
+                </td>
+                <td>
+                  {opp.start_date && <span>{opp.start_date}</span>}
+                  {opp.start_date && opp.end_date && <span> - </span>}
+                  {opp.end_date && <span>{opp.end_date}</span>}
+                  {!opp.start_date && !opp.end_date && <span className="text-muted">-</span>}
+                </td>
+                <td>
+                  <button className="btn btn-sm" onClick={() => handleEdit(opp)}>Edit</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => handleDelete(opp.id)}>Delete</button>
+                </td>
+              </tr>
+            );
+          })}
           {filteredOpportunities.length === 0 && (
             <tr>
-              <td colSpan={8} className="text-center">No opportunities found</td>
+              <td colSpan={10} className="text-center">No opportunities found</td>
             </tr>
           )}
         </tbody>

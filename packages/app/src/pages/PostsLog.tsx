@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getRestaurants, getPosts, getAdSets, addManualPost, retryPost, deletePost, pausePost, activatePost } from '../api';
-import type { Restaurant, Post, AdSet } from '../types';
+import { getRestaurants, getPosts, getAdSets, getOpportunities, addManualPost, retryPost, deletePost, pausePost, activatePost } from '../api';
+import type { Restaurant, Post, AdSet, Opportunity } from '../types';
 
 export default function PostsLog() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [adSets, setAdSets] = useState<AdSet[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
@@ -14,8 +15,8 @@ export default function PostsLog() {
 
   const load = () => {
     setLoading(true);
-    Promise.all([getRestaurants(), getPosts(), getAdSets()])
-      .then(([r, p, a]) => { setRestaurants(r); setPosts(p); setAdSets(a); })
+    Promise.all([getRestaurants(), getPosts(), getAdSets(), getOpportunities()])
+      .then(([r, p, a, o]) => { setRestaurants(r); setPosts(p); setAdSets(a); setOpportunities(o); })
       .finally(() => setLoading(false));
   };
 
@@ -69,8 +70,10 @@ export default function PostsLog() {
   if (loading) return <div className="loading">Ładowanie...</div>;
 
   const filtered = filter ? posts.filter(p => p.restaurant_id === filter) : posts;
-  const getRestaurantName = (id: string) => restaurants.find(r => r.id === id)?.name || 'Nieznana';
-  const getAdSetName = (id: string | null) => id ? adSets.find(a => a.id === id)?.name || '-' : '-';
+  
+  const getRestaurant = (id: string) => restaurants.find(r => r.id === id);
+  const getAdSet = (id: string | null) => id ? adSets.find(a => a.id === id) : null;
+  const getOpportunity = (pk: number | null) => pk ? opportunities.find(o => o.pk === pk) : null;
 
   return (
     <div>
@@ -124,44 +127,84 @@ export default function PostsLog() {
             <thead>
               <tr>
                 <th>Restauracja</th>
-                <th>Post ID</th>
-                <th>Kategoria</th>
+                <th>Opportunity (PK)</th>
                 <th>Ad Set</th>
+                <th>Kategoria</th>
+                <th>Meta IDs</th>
                 <th>Status</th>
-                <th>Data końca</th>
                 <th>Akcje</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(p => (
-                <tr key={p.id}>
-                  <td>{getRestaurantName(p.restaurant_id)}</td>
-                  <td><code>{p.meta_post_id?.slice(-10)}</code></td>
-                  <td><code>{p.category_code || '-'}</code></td>
-                  <td><code>{getAdSetName(p.ad_set_id)}</code></td>
-                  <td>
-                    <span className={`badge badge-${
-                      p.status === 'ACTIVE' ? 'success' : 
-                      p.status === 'PAUSED' ? 'secondary' : 
-                      p.status === 'PENDING' ? 'warning' : 'danger'
-                    }`}>
-                      {p.status}
-                    </span>
-                  </td>
-                  <td>{p.promotion_end_date || '-'}</td>
-                  <td className="flex">
-                    {p.status === 'PENDING' && (
-                      <button className="btn btn-secondary btn-sm" onClick={() => handleRetry(p.id)}>Ponów</button>
-                    )}
-                    {p.meta_ad_id && p.status !== 'PENDING' && (
-                      <button className="btn btn-secondary btn-sm" onClick={() => handleToggle(p)}>
-                        {p.status === 'ACTIVE' ? 'Pauza' : 'Włącz'}
-                      </button>
-                    )}
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Usuń</button>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(p => {
+                const restaurant = getRestaurant(p.restaurant_id);
+                const adSet = getAdSet(p.ad_set_id);
+                const opportunity = getOpportunity(p.pk);
+                
+                return (
+                  <tr key={p.id}>
+                    <td>
+                      <strong>{restaurant?.name || 'Nieznana'}</strong>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        rid={restaurant?.rid} / {restaurant?.slug}
+                      </div>
+                    </td>
+                    <td>
+                      {opportunity ? (
+                        <>
+                          <strong style={{ color: '#2563eb' }}>pk{opportunity.pk}</strong>
+                          <div style={{ fontSize: 11, color: '#666' }}>
+                            {opportunity.name} ({opportunity.offer_type})
+                          </div>
+                        </>
+                      ) : (
+                        <span style={{ color: '#999' }}>-</span>
+                      )}
+                    </td>
+                    <td>
+                      {adSet ? (
+                        <>
+                          <code style={{ fontSize: 11 }}>{adSet.name}</code>
+                          <div style={{ fontSize: 11, color: '#666' }}>
+                            v{adSet.version} / {adSet.ads_count} ads
+                          </div>
+                        </>
+                      ) : (
+                        <span style={{ color: '#999' }}>-</span>
+                      )}
+                    </td>
+                    <td><code>{p.category_code || '-'}</code></td>
+                    <td style={{ fontSize: 11 }}>
+                      <div title={p.meta_post_id}>post: ...{p.meta_post_id?.slice(-8)}</div>
+                      {p.meta_ad_id && <div title={p.meta_ad_id}>ad: ...{p.meta_ad_id.slice(-8)}</div>}
+                      {p.meta_creative_id && <div title={p.meta_creative_id}>crv: ...{p.meta_creative_id.slice(-8)}</div>}
+                    </td>
+                    <td>
+                      <span className={`badge badge-${
+                        p.status === 'ACTIVE' ? 'success' : 
+                        p.status === 'PAUSED' ? 'secondary' : 
+                        p.status === 'PENDING' ? 'warning' : 'danger'
+                      }`}>
+                        {p.status}
+                      </span>
+                      {p.promotion_end_date && (
+                        <div style={{ fontSize: 10, color: '#666' }}>do {p.promotion_end_date}</div>
+                      )}
+                    </td>
+                    <td className="flex">
+                      {p.status === 'PENDING' && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleRetry(p.id)}>Ponów</button>
+                      )}
+                      {p.meta_ad_id && p.status !== 'PENDING' && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleToggle(p)}>
+                          {p.status === 'ACTIVE' ? 'Pauza' : 'Włącz'}
+                        </button>
+                      )}
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Usuń</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
