@@ -92,19 +92,24 @@ export class TrackingLinkService {
    * Generate URL parameters string for Meta Ads (without destination URL)
    * Used for Ad's url_tags parameter
    * Returns: r=1&c=.pi1.pk2.ps{{ad.id}}&utm_source=mysite&utm_medium=meta&utm_campaign=pk2-slug&utm_content=cat-v1
+   * 
+   * IMPORTANT: Don't URL-encode {{ad.id}} - Meta needs it literally for dynamic replacement
    */
   generateMetaUrlParams(params: Omit<TrackingLinkParams, 'pi' | 'ps' | 'destinationUrl'>): string {
     const { rid, pk, opportunitySlug, categoryCode, version } = params;
 
-    const urlParams = new URLSearchParams();
-    urlParams.set('r', String(rid));
-    urlParams.set('c', `.pi1.pk${pk}.ps{{ad.id}}`);
-    urlParams.set('utm_source', 'mysite');
-    urlParams.set('utm_medium', 'meta');
-    urlParams.set('utm_campaign', `pk${pk}-${opportunitySlug}`);
-    urlParams.set('utm_content', `${categoryCode}-v${version}`);
+    // Build manually to avoid URL-encoding the {{ad.id}} macro
+    // Meta requires {{ad.id}} to be literal, not encoded as %7B%7Bad.id%7D%7D
+    const parts = [
+      `r=${rid}`,
+      `c=.pi1.pk${pk}.ps{{ad.id}}`,
+      `utm_source=mysite`,
+      `utm_medium=meta`,
+      `utm_campaign=pk${pk}-${encodeURIComponent(opportunitySlug)}`,
+      `utm_content=${encodeURIComponent(categoryCode)}-v${version}`,
+    ];
 
-    return urlParams.toString();
+    return parts.join('&');
   }
 
   /**

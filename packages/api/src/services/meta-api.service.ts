@@ -197,6 +197,7 @@ export class MetaApiService {
     pageId: string; 
     postId: string;
     websiteUrl?: string;
+    urlTags?: string;  // URL parameters for tracking (appended to destination URL)
   }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/adcreatives`;
     
@@ -217,10 +218,16 @@ export class MetaApiService {
       body.source_url = params.websiteUrl;
     }
 
+    // URL parameters - appended to all destination URLs in this creative
+    if (params.urlTags) {
+      body.url_tags = params.urlTags;
+      this.logger.log(`Creative URL tags: ${params.urlTags}`);
+    }
+
     const result = await this.request<MetaApiResponse>(url, 'POST', body);
 
     if (!result.id) throw new Error('Failed to create creative');
-    this.logger.log(`Created creative with CTA link: ${params.websiteUrl || 'none'}`);
+    this.logger.log(`Created creative with CTA link: ${params.websiteUrl || 'none'}, url_tags: ${params.urlTags ? 'yes' : 'no'}`);
     return result.id;
   }
 
@@ -230,14 +237,12 @@ export class MetaApiService {
   
   /**
    * Create Ad with new naming convention: pk{PK}_{meta_ad_id}
-   * Includes URL parameters for tracking (r, c, utm_*)
-   * The {{ad.id}} macro in URL params will be replaced by Meta with actual ad ID
+   * URL tracking params should be set on the Creative, not Ad
    */
   async createAd(params: { 
     adSetId: string; 
     creativeId: string; 
     pk: number;
-    urlParams?: string;  // URL parameters string: r=1&c=.pi1.pk2.ps{{ad.id}}&utm_source=...
   }): Promise<string> {
     const url = `${META_API_BASE}/act_${this.adAccountId}/ads`;
     
@@ -250,13 +255,6 @@ export class MetaApiService {
       creative: { creative_id: params.creativeId },
       status: 'ACTIVE',
     };
-
-    // Add URL parameters for tracking if provided
-    // url_tags will be appended to all outbound URLs in the ad
-    if (params.urlParams) {
-      body.url_tags = params.urlParams;
-      this.logger.log(`Ad URL params: ${params.urlParams}`);
-    }
 
     const result = await this.request<MetaApiResponse>(url, 'POST', body);
 
