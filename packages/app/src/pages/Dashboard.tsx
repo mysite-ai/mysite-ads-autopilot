@@ -75,26 +75,24 @@ export default function Dashboard() {
           <table>
             <thead>
               <tr>
+                <th>RID</th>
                 <th>Nazwa</th>
-                <th>Kod</th>
-                <th>Region</th>
-                <th>FB Page</th>
+                <th>Slug</th>
                 <th>IG</th>
-                <th>Kampania</th>
+                <th>Kampania Meta</th>
                 <th>Akcje</th>
               </tr>
             </thead>
             <tbody>
               {restaurants.map(r => (
                 <tr key={r.id}>
-                  <td><strong>{r.name}</strong></td>
-                  <td><code>{r.code}</code></td>
-                  <td>{r.area}</td>
-                  <td><code>{r.facebook_page_id}</code></td>
+                  <td><strong>{r.rid}</strong></td>
+                  <td>{r.name}</td>
+                  <td><code>{r.slug}</code></td>
                   <td>{r.instagram_account_id ? '✓' : '-'}</td>
                   <td>
                     {r.meta_campaign_id 
-                      ? <span className="badge badge-success">OK</span>
+                      ? <span className="badge badge-success">{r.rid}-{r.slug}</span>
                       : <span className="badge badge-danger">Brak</span>}
                   </td>
                   <td className="flex">

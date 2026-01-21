@@ -173,7 +173,7 @@ export class AdSetsService {
     if (!restaurant.meta_campaign_id) throw new Error(`No campaign for ${restaurant.name}`);
 
     const version = await this.supabase.getNextAdSetVersion(restaurant.id, category.id);
-    const adSetName = `${restaurant.code}_${categoryCode}_${version.toString().padStart(2, '0')}`;
+    const adSetName = `${restaurant.slug}_${categoryCode}_v${version}`;
 
     const template = (category.targeting_template || {}) as TargetingTemplate;
 
