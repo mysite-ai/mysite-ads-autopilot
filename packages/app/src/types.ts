@@ -130,7 +130,7 @@ export interface Event {
   created_at: string;
 }
 
-export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'rid' | 'meta_campaign_id' | 'meta_pixel_id' | 'created_at'> & {
+export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'rid' | 'slug' | 'meta_campaign_id' | 'meta_pixel_id' | 'created_at'> & {
   meta_campaign_id?: string | null;
   meta_pixel_id?: string | null;
   slug?: string;  // Optional - auto-generated from name if not provided
