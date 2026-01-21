@@ -3,6 +3,7 @@ import Dashboard from './pages/Dashboard';
 import Restaurants from './pages/Restaurants';
 import Opportunities from './pages/Opportunities';
 import AdSetConfig from './pages/AdSetConfig';
+import Categories from './pages/Categories';
 import PostsLog from './pages/PostsLog';
 import Events from './pages/Events';
 import LinkGenerator from './pages/LinkGenerator';
@@ -67,7 +68,7 @@ export default function App() {
         {page === 'restaurants' && <Restaurants />}
         {page === 'opportunities' && <Opportunities />}
         {page === 'adsets' && <AdSetConfig />}
-        {page === 'categories' && <AdSetConfig />}
+        {page === 'categories' && <Categories />}
         {page === 'events' && <Events />}
         {page === 'posts' && <PostsLog />}
         {page === 'links' && <LinkGenerator />}
