@@ -1,8 +1,10 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { SupabaseService, Post, Restaurant } from '../../services/supabase.service';
+import { SupabaseService, Post, Restaurant, OfferType } from '../../services/supabase.service';
 import { MetaApiService } from '../../services/meta-api.service';
 import { LlmService } from '../../services/llm.service';
 import { AdSetsService } from '../ad-sets/ad-sets.service';
+import { OpportunitiesService } from '../opportunities/opportunities.service';
+import { TrackingLinkService } from '../../services/tracking-link.service';
 
 @Injectable()
 export class PostsService {
@@ -13,6 +15,8 @@ export class PostsService {
     private metaApi: MetaApiService,
     private llm: LlmService,
     private adSets: AdSetsService,
+    private opportunities: OpportunitiesService,
+    private trackingLinks: TrackingLinkService,
   ) {}
 
   async getAll(restaurantId?: string): Promise<Post[]> {
@@ -88,50 +92,52 @@ export class PostsService {
     }
 
     // === KROK 2: Kategoryzacja LLM ===
-    this.logger.log(`[2/5] Kategoryzacja LLM dla posta ${postId}...`);
+    this.logger.log(`[2/6] Kategoryzacja LLM dla posta ${postId}...`);
     const categorization = await this.llm.categorizePost(content);
-    this.logger.log(`[2/5] ✅ Skategoryzowano: ${categorization.category}`);
+    this.logger.log(`[2/6] ✅ Skategoryzowano: ${categorization.category}`);
 
-    // === KROK 3: Pobierz lub stwórz Ad Set (DOPIERO teraz, bo Creative się udał) ===
-    this.logger.log(`[3/5] Pobieranie/tworzenie Ad Set dla kategorii ${categorization.category}...`);
+    // === KROK 3: Pobierz lub stwórz Opportunity (PK) ===
+    this.logger.log(`[3/6] Pobieranie/tworzenie Opportunity dla ${categorization.category}...`);
+    const offerType = this.categoryToOfferType(categorization.category);
+    const opportunity = await this.opportunities.getOrCreateForOfferType(restaurant.rid, offerType);
+    this.logger.log(`[3/6] ✅ Opportunity: pk=${opportunity.pk}, name="${opportunity.name}"`);
+
+    // === KROK 4: Pobierz lub stwórz Ad Set z PK ===
+    this.logger.log(`[4/6] Pobieranie/tworzenie Ad Set dla pk${opportunity.pk}_${categorization.category}...`);
     const isEvent = categorization.category.startsWith('EV_');
     const eventIdentifier = isEvent ? categorization.event_identifier : undefined;
     
     let adSet;
     try {
-      adSet = await this.adSets.getOrCreateAdSet(
+      adSet = await this.adSets.getOrCreateAdSetWithPk(
         restaurant,
+        opportunity,
         categorization.category,
         eventIdentifier || undefined,
       );
-      this.logger.log(`[3/5] ✅ Ad Set: ${adSet.name} (isNew: ${!adSet.meta_ad_set_id ? 'YES' : 'NO'})`);
+      this.logger.log(`[4/6] ✅ Ad Set: ${adSet.name} (pk=${opportunity.pk})`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new BadRequestException(`Nie udało się utworzyć Ad Set: ${msg}`);
     }
 
-    // === KROK 4: Utwórz reklamę ===
-    const postIdLast6 = postId.slice(-6);
-    const today = new Date();
-    const dateStr = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear().toString().slice(-2)}`;
-    const adName = `${adSet.name}_${postIdLast6}_${dateStr}`;
-
-    this.logger.log(`[4/5] Tworzenie reklamy: ${adName}...`);
+    // === KROK 5: Utwórz reklamę z nowym nazewnictwem pk{PK}_{ad_id} ===
+    this.logger.log(`[5/6] Tworzenie reklamy pk${opportunity.pk}_...`);
     let adId: string;
     try {
       adId = await this.metaApi.createAd({
         adSetId: adSet.meta_ad_set_id!,
         creativeId,
-        name: adName,
+        pk: opportunity.pk,
       });
-      this.logger.log(`[4/5] ✅ Ad ID: ${adId}`);
+      this.logger.log(`[5/6] ✅ Ad: pk${opportunity.pk}_${adId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new BadRequestException(`❌ Błąd Meta API przy tworzeniu Reklamy: ${msg}`);
     }
 
-    // === KROK 5: Zapisz do bazy - wszystko się udało! ===
-    this.logger.log(`[5/5] Zapisywanie do bazy...`);
+    // === KROK 6: Zapisz do bazy i wygeneruj tracking link ===
+    this.logger.log(`[6/6] Zapisywanie do bazy...`);
     
     // Utwórz event jeśli to wydarzenie
     if (isEvent && eventIdentifier && categorization.event_date) {
@@ -150,7 +156,7 @@ export class PostsService {
     // Zwiększ licznik reklam w ad set
     await this.supabase.incrementAdSetCount(adSet.id);
 
-    // Zapisz post jako ACTIVE
+    // Zapisz post jako ACTIVE z PK
     const post = await this.supabase.createPost({
       restaurant_id: restaurant.id,
       meta_post_id: postId,
@@ -158,6 +164,8 @@ export class PostsService {
       status: 'ACTIVE',
       ayrshare_payload: payload,
       ad_set_id: adSet.id,
+      opportunity_id: opportunity.id,
+      pk: opportunity.pk,
       meta_ad_id: adId,
       meta_creative_id: creativeId,
       category_code: categorization.category,
@@ -165,10 +173,41 @@ export class PostsService {
       promotion_end_date: categorization.promotion_end_date,
     });
 
-    this.logger.log(`[5/5] ✅ Zapisano post ${post.id}`);
-    this.logger.log(`🎉 POST PRZETWORZONY POMYŚLNIE: ${postId} → Kategoria: ${categorization.category}, Ad: ${adId}`);
+    // Wygeneruj i zapisz tracking link
+    if (restaurant.website) {
+      try {
+        await this.trackingLinks.createAndSaveTrackingLink({
+          rid: restaurant.rid,
+          pi: 1, // Meta Ads
+          pk: opportunity.pk,
+          ps: adId,
+          destinationUrl: restaurant.website,
+          opportunitySlug: opportunity.slug,
+          categoryCode: categorization.category,
+          version: adSet.version,
+        }, post.id);
+        this.logger.log(`[6/6] ✅ Tracking link wygenerowany`);
+      } catch (error) {
+        this.logger.warn(`Nie udało się wygenerować tracking link: ${error}`);
+      }
+    }
+
+    this.logger.log(`[6/6] ✅ Zapisano post ${post.id}`);
+    this.logger.log(`🎉 POST PRZETWORZONY: ${postId} → pk=${opportunity.pk}, kategoria=${categorization.category}, ad=${adId}`);
     
     return post;
+  }
+
+  /**
+   * Map category code to offer type
+   */
+  private categoryToOfferType(category: string): OfferType {
+    if (category.startsWith('EV_')) return 'event';
+    if (category.startsWith('LU_')) return 'lunch';
+    if (category.startsWith('PR_')) return 'promo';
+    if (category.startsWith('PD_')) return 'product';
+    if (category === 'BRAND') return 'brand';
+    return 'info';
   }
 
   async pausePost(postId: string): Promise<Post> {
