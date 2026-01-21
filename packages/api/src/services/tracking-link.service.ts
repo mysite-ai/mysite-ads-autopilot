@@ -93,7 +93,7 @@ export class TrackingLinkService {
    */
   async createAndSaveTrackingLink(
     params: TrackingLinkParams,
-    adId?: string,
+    postId?: string,
   ): Promise<TrackingLink> {
     const generated = this.generateTrackingLink(params);
 
@@ -101,14 +101,14 @@ export class TrackingLinkService {
       rid: params.rid,
       pi: params.pi,
       pk: params.pk,
-      ad_id: adId || null,
+      post_id: postId || null,
       destination_url: params.destinationUrl,
+      final_url: generated.finalUrl,
+      c_param: generated.components.c,
       utm_source: generated.components.utm_source,
       utm_medium: generated.components.utm_medium,
       utm_campaign: generated.components.utm_campaign,
       utm_content: generated.components.utm_content,
-      c_param: generated.components.c,
-      final_url: generated.finalUrl,
     });
 
     this.logger.log(`Created tracking link: pk=${params.pk}, url=${generated.finalUrl}`);

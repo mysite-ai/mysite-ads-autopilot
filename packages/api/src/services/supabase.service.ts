@@ -19,16 +19,13 @@ export interface Restaurant {
   rid: number;
   slug: string;
   name: string;
-  code: string;
-  website: string;
-  area: 'S-CITY' | 'M-CITY' | 'L-CITY';
-  fame: 'Neutral' | 'Hot' | 'Epic';
-  delivery_radius_km: number;
-  budget_priorities: Record<string, number>;
+  website: string | null;
   facebook_page_id: string;
-  instagram_account_id: string;
+  instagram_account_id: string | null;
   meta_campaign_id: string | null;
   meta_pixel_id: string | null;
+  area: 'S-CITY' | 'M-CITY' | 'L-CITY';
+  delivery_radius_km: number;
   location: { lat: number; lng: number; address: string };
   created_at: string;
 }
@@ -52,11 +49,10 @@ export interface AdSetCategory {
   id: string;
   code: string;
   name: string;
-  parent_category: string;
+  offer_type: OfferType;
   targeting_template: Record<string, unknown>;
   requires_delivery: boolean;
   is_event_type: boolean;
-  offer_type: OfferType;
   created_at: string;
 }
 
@@ -108,15 +104,14 @@ export interface TrackingLink {
   rid: number;
   pi: number;
   pk: number;
-  ad_id: string | null;
+  post_id: string | null;
   destination_url: string;
+  final_url: string;
+  c_param: string;
   utm_source: string;
   utm_medium: string;
   utm_campaign: string;
   utm_content: string | null;
-  utm_term: string | null;
-  c_param: string;
-  final_url: string;
   created_at: string;
 }
 

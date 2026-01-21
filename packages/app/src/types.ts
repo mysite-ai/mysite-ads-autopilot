@@ -1,18 +1,15 @@
 export interface Restaurant {
   id: string;
-  rid: number;  // Numeric Restaurant ID for attribution
-  slug: string; // URL-safe slug for campaign naming
+  rid: number;
+  slug: string;
   name: string;
-  code: string;
-  website: string;
-  area: 'S-CITY' | 'M-CITY' | 'L-CITY';
-  fame: 'Neutral' | 'Hot' | 'Epic';
-  delivery_radius_km: number;
-  budget_priorities: Record<string, number>;
+  website: string | null;
   facebook_page_id: string;
   instagram_account_id: string | null;
   meta_campaign_id: string | null;
   meta_pixel_id: string | null;
+  area: 'S-CITY' | 'M-CITY' | 'L-CITY';
+  delivery_radius_km: number;
   location: { lat: number; lng: number; address: string };
   created_at: string;
 }
@@ -57,11 +54,10 @@ export interface AdSetCategory {
   id: string;
   code: string;
   name: string;
-  parent_category: string;
+  offer_type: OfferType;
   targeting_template: TargetingTemplate;
   requires_delivery: boolean;
   is_event_type: boolean;
-  offer_type: OfferType;
   created_at: string;
 }
 
@@ -108,15 +104,14 @@ export interface TrackingLink {
   rid: number;
   pi: number;
   pk: number;
-  ad_id: string | null;
+  post_id: string | null;
   destination_url: string;
+  final_url: string;
+  c_param: string;
   utm_source: string;
   utm_medium: string;
   utm_campaign: string;
   utm_content: string | null;
-  utm_term: string | null;
-  c_param: string;
-  final_url: string;
   created_at: string;
 }
 
@@ -130,10 +125,14 @@ export interface Event {
   created_at: string;
 }
 
-export type CreateRestaurantDto = Omit<Restaurant, 'id' | 'rid' | 'slug' | 'meta_campaign_id' | 'meta_pixel_id' | 'created_at'> & {
-  meta_campaign_id?: string | null;
-  meta_pixel_id?: string | null;
-  slug?: string;  // Optional - auto-generated from name if not provided
+export type CreateRestaurantDto = {
+  name: string;
+  website?: string;
+  facebook_page_id: string;
+  instagram_account_id?: string | null;
+  area?: 'S-CITY' | 'M-CITY' | 'L-CITY';
+  delivery_radius_km?: number;
+  location?: { lat: number; lng: number; address: string };
 };
 
 export type CreateOpportunityDto = Omit<Opportunity, 'id' | 'pk' | 'created_at' | 'restaurant_name' | 'ads_count'>;

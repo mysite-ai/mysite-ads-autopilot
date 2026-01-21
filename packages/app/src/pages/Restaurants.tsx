@@ -2,32 +2,17 @@ import { useEffect, useState } from 'react';
 import { getRestaurants, createRestaurant, deleteRestaurant, retryCampaignCreation } from '../api';
 import type { Restaurant } from '../types';
 
-// Generate code from name (first 3 letters uppercase)
-const generateCode = (name: string): string => {
-  return name
-    .replace(/[^a-zA-Z]/g, '')
-    .substring(0, 3)
-    .toUpperCase() || 'XXX';
-};
-
 export default function Restaurants() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<{
-    name: string; website: string;
-    area: 'S-CITY' | 'M-CITY' | 'L-CITY';
-    fame: 'Neutral' | 'Hot' | 'Epic';
-    delivery_radius_km: number;
-    facebook_page_id: string; instagram_account_id: string;
-    lat: number; lng: number; address: string;
-  }>({
-    name: '', website: '',
-    area: 'M-CITY',
-    fame: 'Neutral',
+  const [form, setForm] = useState({
+    name: '',
+    website: '',
+    facebook_page_id: '',
+    instagram_account_id: '',
+    area: 'M-CITY' as 'S-CITY' | 'M-CITY' | 'L-CITY',
     delivery_radius_km: 5,
-    facebook_page_id: '', instagram_account_id: '',
-    lat: 52.2297, lng: 21.0122, address: 'Warszawa'
   });
 
   const load = () => {
@@ -41,18 +26,14 @@ export default function Restaurants() {
     e.preventDefault();
     await createRestaurant({
       name: form.name,
-      code: generateCode(form.name) + Date.now().toString().slice(-3), // Auto-generate unique code
-      website: form.website,
-      area: form.area,
-      fame: form.fame,
-      delivery_radius_km: form.delivery_radius_km,
+      website: form.website || undefined,
       facebook_page_id: form.facebook_page_id,
       instagram_account_id: form.instagram_account_id || null,
-      location: { lat: form.lat, lng: form.lng, address: form.address },
-      budget_priorities: { Event: 20, Lunch: 20, Promo: 20, Product: 20, Brand: 10, Info: 10 }
+      area: form.area,
+      delivery_radius_km: form.delivery_radius_km,
     });
     setShowForm(false);
-    setForm({ name: '', website: '', area: 'M-CITY' as const, fame: 'Neutral' as const, delivery_radius_km: 5, facebook_page_id: '', instagram_account_id: '', lat: 52.2297, lng: 21.0122, address: 'Warszawa' });
+    setForm({ name: '', website: '', facebook_page_id: '', instagram_account_id: '', area: 'M-CITY', delivery_radius_km: 5 });
     load();
   };
 

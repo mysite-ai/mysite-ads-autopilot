@@ -4,17 +4,12 @@ import { MetaApiService } from '../../services/meta-api.service';
 
 export interface CreateRestaurantDto {
   name: string;
-  code: string;
-  website: string;
-  area: 'S-CITY' | 'M-CITY' | 'L-CITY';
-  fame: 'Neutral' | 'Hot' | 'Epic';
-  delivery_radius_km: number;
-  budget_priorities: Record<string, number>;
+  website?: string;
   facebook_page_id: string;
-  instagram_account_id: string;
-  location: { lat: number; lng: number; address: string };
-  meta_campaign_id?: string | null;
-  slug?: string;
+  instagram_account_id?: string | null;
+  area?: 'S-CITY' | 'M-CITY' | 'L-CITY';
+  delivery_radius_km?: number;
+  location?: { lat: number; lng: number; address: string };
 }
 
 @Injectable()
@@ -35,28 +30,25 @@ export class RestaurantsService {
   }
 
   async create(dto: CreateRestaurantDto): Promise<Restaurant> {
-    // Generate slug if not provided
-    const slug = dto.slug || this.generateSlug(dto.name);
-    
     const restaurant = await this.supabase.createRestaurant({
-      ...dto,
-      slug,
-      meta_campaign_id: dto.meta_campaign_id || null,
+      name: dto.name,
+      website: dto.website || null,
+      facebook_page_id: dto.facebook_page_id,
+      instagram_account_id: dto.instagram_account_id || null,
+      area: dto.area || 'M-CITY',
+      delivery_radius_km: dto.delivery_radius_km || 5,
+      location: dto.location || { lat: 0, lng: 0, address: '' },
     });
 
-    if (!dto.meta_campaign_id) {
-      try {
-        // Use new naming convention: {RID}-{slug}
-        const campaignId = await this.metaApi.createCampaign(restaurant.rid, restaurant.slug || slug);
-        this.logger.log(`Created campaign ${campaignId} for ${dto.name} (${restaurant.rid}-${restaurant.slug})`);
-        return this.supabase.updateRestaurant(restaurant.id, { meta_campaign_id: campaignId });
-      } catch (error) {
-        this.logger.error(`Failed to create campaign: ${error}`);
-        return restaurant;
-      }
+    // Auto-create Meta campaign with naming: {RID}-{slug}
+    try {
+      const campaignId = await this.metaApi.createCampaign(restaurant.rid, restaurant.slug);
+      this.logger.log(`Created campaign ${campaignId} for ${dto.name} (${restaurant.rid}-${restaurant.slug})`);
+      return this.supabase.updateRestaurant(restaurant.id, { meta_campaign_id: campaignId });
+    } catch (error) {
+      this.logger.error(`Failed to create campaign: ${error}`);
+      return restaurant;
     }
-
-    return restaurant;
   }
 
   async update(id: string, dto: Partial<CreateRestaurantDto>): Promise<Restaurant> {
