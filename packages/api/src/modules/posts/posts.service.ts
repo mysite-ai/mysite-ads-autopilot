@@ -60,16 +60,63 @@ export class PostsService {
       this.logger.log(`Usunięto stary pending post ${postId}, przetwarzam od nowa`);
     }
 
-    // === KROK 1: NAJPIERW Creative - żeby sprawdzić czy post może być promowany ===
-    this.logger.log(`[1/5] Tworzenie Creative (object_story_id: ${restaurant.facebook_page_id}_${postId}, website: ${restaurant.website || 'brak'})...`);
+    // === KROK 1: Kategoryzacja LLM ===
+    this.logger.log(`[1/6] Kategoryzacja LLM dla posta ${postId}...`);
+    const categorization = await this.llm.categorizePost(content);
+    this.logger.log(`[1/6] ✅ Skategoryzowano: ${categorization.category}`);
+
+    // === KROK 2: Pobierz lub stwórz Opportunity (PK) ===
+    this.logger.log(`[2/6] Pobieranie/tworzenie Opportunity dla ${categorization.category}...`);
+    const offerType = this.categoryToOfferType(categorization.category);
+    const opportunity = await this.opportunities.getOrCreateForOfferType(restaurant.rid, offerType);
+    this.logger.log(`[2/6] ✅ Opportunity: pk=${opportunity.pk}, name="${opportunity.name}"`);
+
+    // === KROK 3: Pobierz lub stwórz Ad Set z PK ===
+    this.logger.log(`[3/6] Pobieranie/tworzenie Ad Set dla pk${opportunity.pk}_${categorization.category}...`);
+    const isEvent = categorization.category.startsWith('EV_');
+    const eventIdentifier = isEvent ? categorization.event_identifier : undefined;
+    
+    let adSet;
+    try {
+      adSet = await this.adSets.getOrCreateAdSetWithPk(
+        restaurant,
+        opportunity,
+        categorization.category,
+        eventIdentifier || undefined,
+      );
+      this.logger.log(`[3/6] ✅ Ad Set: ${adSet.name} (pk=${opportunity.pk})`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new BadRequestException(`Nie udało się utworzyć Ad Set: ${msg}`);
+    }
+
+    // === KROK 4: Wygeneruj tracking URL z {{ad.id}} makrem ===
+    let trackingUrl: string | undefined;
+    if (restaurant.website) {
+      const generated = this.trackingLinks.generateMetaTrackingLink({
+        rid: restaurant.rid,
+        pk: opportunity.pk,
+        destinationUrl: restaurant.website,
+        opportunitySlug: opportunity.slug,
+        categoryCode: categorization.category,
+        version: adSet.version,
+      });
+      trackingUrl = generated.finalUrl;
+      this.logger.log(`[4/6] ✅ Tracking URL: ${trackingUrl}`);
+    } else {
+      this.logger.log(`[4/6] ⚠️ Brak website - pomijam tracking URL`);
+    }
+
+    // === KROK 5: Tworzenie Creative z tracking URL ===
+    this.logger.log(`[5/6] Tworzenie Creative (object_story_id: ${restaurant.facebook_page_id}_${postId})...`);
     let creativeId: string;
     try {
       creativeId = await this.metaApi.createCreative({
         pageId: restaurant.facebook_page_id,
         postId,
-        websiteUrl: restaurant.website || undefined,
+        websiteUrl: trackingUrl || restaurant.website || undefined,
       });
-      this.logger.log(`[1/5] ✅ Creative ID: ${creativeId}`);
+      this.logger.log(`[5/6] ✅ Creative ID: ${creativeId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       
@@ -91,38 +138,8 @@ export class PostsService {
       throw new BadRequestException(`❌ Błąd Meta API przy tworzeniu Creative: ${msg}`);
     }
 
-    // === KROK 2: Kategoryzacja LLM ===
-    this.logger.log(`[2/6] Kategoryzacja LLM dla posta ${postId}...`);
-    const categorization = await this.llm.categorizePost(content);
-    this.logger.log(`[2/6] ✅ Skategoryzowano: ${categorization.category}`);
-
-    // === KROK 3: Pobierz lub stwórz Opportunity (PK) ===
-    this.logger.log(`[3/6] Pobieranie/tworzenie Opportunity dla ${categorization.category}...`);
-    const offerType = this.categoryToOfferType(categorization.category);
-    const opportunity = await this.opportunities.getOrCreateForOfferType(restaurant.rid, offerType);
-    this.logger.log(`[3/6] ✅ Opportunity: pk=${opportunity.pk}, name="${opportunity.name}"`);
-
-    // === KROK 4: Pobierz lub stwórz Ad Set z PK ===
-    this.logger.log(`[4/6] Pobieranie/tworzenie Ad Set dla pk${opportunity.pk}_${categorization.category}...`);
-    const isEvent = categorization.category.startsWith('EV_');
-    const eventIdentifier = isEvent ? categorization.event_identifier : undefined;
-    
-    let adSet;
-    try {
-      adSet = await this.adSets.getOrCreateAdSetWithPk(
-        restaurant,
-        opportunity,
-        categorization.category,
-        eventIdentifier || undefined,
-      );
-      this.logger.log(`[4/6] ✅ Ad Set: ${adSet.name} (pk=${opportunity.pk})`);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      throw new BadRequestException(`Nie udało się utworzyć Ad Set: ${msg}`);
-    }
-
-    // === KROK 5: Utwórz reklamę z nowym nazewnictwem pk{PK}_{ad_id} ===
-    this.logger.log(`[5/6] Tworzenie reklamy pk${opportunity.pk}_...`);
+    // === KROK 6: Utwórz reklamę z nowym nazewnictwem pk{PK}_{ad_id} ===
+    this.logger.log(`[6/6] Tworzenie reklamy pk${opportunity.pk}_...`);
     let adId: string;
     try {
       adId = await this.metaApi.createAd({
@@ -130,14 +147,14 @@ export class PostsService {
         creativeId,
         pk: opportunity.pk,
       });
-      this.logger.log(`[5/6] ✅ Ad: pk${opportunity.pk}_${adId}`);
+      this.logger.log(`[6/6] ✅ Ad: pk${opportunity.pk}_${adId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new BadRequestException(`❌ Błąd Meta API przy tworzeniu Reklamy: ${msg}`);
     }
 
-    // === KROK 6: Zapisz do bazy i wygeneruj tracking link ===
-    this.logger.log(`[6/6] Zapisywanie do bazy...`);
+    // === KROK 7: Zapisz do bazy ===
+    this.logger.log(`[7/7] Zapisywanie do bazy...`);
     
     // Utwórz event jeśli to wydarzenie
     if (isEvent && eventIdentifier && categorization.event_date) {
@@ -173,7 +190,7 @@ export class PostsService {
       promotion_end_date: categorization.promotion_end_date,
     });
 
-    // Wygeneruj i zapisz tracking link
+    // Zapisz tracking link do bazy (z rzeczywistym ad_id zamiast {{ad.id}})
     if (restaurant.website) {
       try {
         await this.trackingLinks.createAndSaveTrackingLink({
@@ -186,14 +203,14 @@ export class PostsService {
           categoryCode: categorization.category,
           version: adSet.version,
         }, post.id);
-        this.logger.log(`[6/6] ✅ Tracking link wygenerowany`);
+        this.logger.log(`[7/7] ✅ Tracking link zapisany do bazy`);
       } catch (error) {
-        this.logger.warn(`Nie udało się wygenerować tracking link: ${error}`);
+        this.logger.warn(`Nie udało się zapisać tracking link: ${error}`);
       }
     }
 
-    this.logger.log(`[6/6] ✅ Zapisano post ${post.id}`);
-    this.logger.log(`🎉 POST PRZETWORZONY: ${postId} → pk=${opportunity.pk}, kategoria=${categorization.category}, ad=${adId}`);
+    this.logger.log(`[7/7] ✅ Zapisano post ${post.id}`);
+    this.logger.log(`🎉 POST PRZETWORZONY: ${postId} → pk=${opportunity.pk}, kategoria=${categorization.category}, ad=${adId}, trackingUrl=${trackingUrl || 'brak'}`);
     
     return post;
   }
