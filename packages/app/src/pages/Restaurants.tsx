@@ -2,19 +2,27 @@ import { useEffect, useState } from 'react';
 import { getRestaurants, createRestaurant, deleteRestaurant, retryCampaignCreation } from '../api';
 import type { Restaurant } from '../types';
 
+// Generate code from name (first 3 letters uppercase)
+const generateCode = (name: string): string => {
+  return name
+    .replace(/[^a-zA-Z]/g, '')
+    .substring(0, 3)
+    .toUpperCase() || 'XXX';
+};
+
 export default function Restaurants() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<{
-    name: string; code: string; website: string;
+    name: string; website: string;
     area: 'S-CITY' | 'M-CITY' | 'L-CITY';
     fame: 'Neutral' | 'Hot' | 'Epic';
     delivery_radius_km: number;
     facebook_page_id: string; instagram_account_id: string;
     lat: number; lng: number; address: string;
   }>({
-    name: '', code: '', website: '',
+    name: '', website: '',
     area: 'M-CITY',
     fame: 'Neutral',
     delivery_radius_km: 5,
@@ -33,7 +41,7 @@ export default function Restaurants() {
     e.preventDefault();
     await createRestaurant({
       name: form.name,
-      code: form.code,
+      code: generateCode(form.name) + Date.now().toString().slice(-3), // Auto-generate unique code
       website: form.website,
       area: form.area,
       fame: form.fame,
@@ -44,7 +52,7 @@ export default function Restaurants() {
       budget_priorities: { Event: 20, Lunch: 20, Promo: 20, Product: 20, Brand: 10, Info: 10 }
     });
     setShowForm(false);
-    setForm({ name: '', code: '', website: '', area: 'M-CITY' as const, fame: 'Neutral' as const, delivery_radius_km: 5, facebook_page_id: '', instagram_account_id: '', lat: 52.2297, lng: 21.0122, address: 'Warszawa' });
+    setForm({ name: '', website: '', area: 'M-CITY' as const, fame: 'Neutral' as const, delivery_radius_km: 5, facebook_page_id: '', instagram_account_id: '', lat: 52.2297, lng: 21.0122, address: 'Warszawa' });
     load();
   };
 
@@ -81,20 +89,8 @@ export default function Restaurants() {
                 <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} required />
               </div>
               <div className="form-group">
-                <label>Kod (2-3 znaki)</label>
-                <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} maxLength={3} required />
-              </div>
-              <div className="form-group">
                 <label>Website</label>
                 <input value={form.website} onChange={e => setForm({...form, website: e.target.value})} required />
-              </div>
-              <div className="form-group">
-                <label>Region</label>
-                <select value={form.area} onChange={e => setForm({...form, area: e.target.value as 'S-CITY' | 'M-CITY' | 'L-CITY'})}>
-                  <option value="S-CITY">Małe miasto</option>
-                  <option value="M-CITY">Średnie miasto</option>
-                  <option value="L-CITY">Duże miasto</option>
-                </select>
               </div>
               <div className="form-group">
                 <label>Facebook Page ID</label>
@@ -109,16 +105,16 @@ export default function Restaurants() {
                 />
               </div>
               <div className="form-group">
-                <label>Radius delivery (km)</label>
-                <input type="number" value={form.delivery_radius_km} onChange={e => setForm({...form, delivery_radius_km: +e.target.value})} />
+                <label>Region</label>
+                <select value={form.area} onChange={e => setForm({...form, area: e.target.value as 'S-CITY' | 'M-CITY' | 'L-CITY'})}>
+                  <option value="S-CITY">Małe miasto</option>
+                  <option value="M-CITY">Średnie miasto</option>
+                  <option value="L-CITY">Duże miasto</option>
+                </select>
               </div>
               <div className="form-group">
-                <label>Fame</label>
-                <select value={form.fame} onChange={e => setForm({...form, fame: e.target.value as 'Neutral' | 'Hot' | 'Epic'})}>
-                  <option value="Neutral">Neutral</option>
-                  <option value="Hot">Hot</option>
-                  <option value="Epic">Epic</option>
-                </select>
+                <label>Radius delivery (km)</label>
+                <input type="number" value={form.delivery_radius_km} onChange={e => setForm({...form, delivery_radius_km: +e.target.value})} />
               </div>
             </div>
             <button type="submit" className="btn btn-primary">Zapisz</button>
@@ -132,15 +128,15 @@ export default function Restaurants() {
         ) : (
           <table>
             <thead>
-              <tr><th>Nazwa</th><th>Kod</th><th>Region</th><th>FB</th><th>IG</th><th>Kampania</th><th>Akcje</th></tr>
+              <tr><th>RID</th><th>Nazwa</th><th>Slug</th><th>Region</th><th>IG</th><th>Kampania Meta</th><th>Akcje</th></tr>
             </thead>
             <tbody>
               {restaurants.map(r => (
                 <tr key={r.id}>
+                  <td><strong>{r.rid}</strong></td>
                   <td>{r.name}</td>
-                  <td><code>{r.code}</code></td>
+                  <td><code>{r.slug || '-'}</code></td>
                   <td>{r.area}</td>
-                  <td><code style={{fontSize: '11px'}}>{r.facebook_page_id}</code></td>
                   <td>
                     {r.instagram_account_id 
                       ? <span className="badge badge-success">✓</span>
@@ -148,7 +144,7 @@ export default function Restaurants() {
                   </td>
                   <td>
                     {r.meta_campaign_id 
-                      ? <span className="badge badge-success">OK</span>
+                      ? <span className="badge badge-success">{r.rid}-{r.slug}</span>
                       : <span className="badge badge-danger">Brak</span>}
                   </td>
                   <td className="flex">
