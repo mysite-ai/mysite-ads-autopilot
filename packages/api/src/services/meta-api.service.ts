@@ -296,6 +296,11 @@ export class MetaApiService {
     interests?: Array<{ id: string; name: string }>;
     includeInstagram?: boolean;
   }): Record<string, unknown> {
+    // Validate location - Meta requires a real location
+    if (!params.lat || !params.lng || (params.lat === 0 && params.lng === 0)) {
+      throw new Error('Invalid restaurant location. Please set a valid latitude and longitude before creating ads.');
+    }
+
     const targeting: Record<string, unknown> = {
       geo_locations: {
         custom_locations: [{

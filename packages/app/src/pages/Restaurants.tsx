@@ -13,6 +13,9 @@ export default function Restaurants() {
     instagram_account_id: '',
     area: 'M-CITY' as 'S-CITY' | 'M-CITY' | 'L-CITY',
     delivery_radius_km: 5,
+    lat: '',
+    lng: '',
+    address: '',
   });
 
   const load = () => {
@@ -24,6 +27,15 @@ export default function Restaurants() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const lat = parseFloat(form.lat);
+    const lng = parseFloat(form.lng);
+    
+    if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) {
+      alert('Podaj prawidłowe współrzędne lokalizacji (lat, lng)');
+      return;
+    }
+    
     await createRestaurant({
       name: form.name,
       website: form.website || undefined,
@@ -31,9 +43,10 @@ export default function Restaurants() {
       instagram_account_id: form.instagram_account_id || null,
       area: form.area,
       delivery_radius_km: form.delivery_radius_km,
+      location: { lat, lng, address: form.address },
     });
     setShowForm(false);
-    setForm({ name: '', website: '', facebook_page_id: '', instagram_account_id: '', area: 'M-CITY', delivery_radius_km: 5 });
+    setForm({ name: '', website: '', facebook_page_id: '', instagram_account_id: '', area: 'M-CITY', delivery_radius_km: 5, lat: '', lng: '', address: '' });
     load();
   };
 
@@ -98,6 +111,37 @@ export default function Restaurants() {
                 <input type="number" value={form.delivery_radius_km} onChange={e => setForm({...form, delivery_radius_km: +e.target.value})} />
               </div>
             </div>
+            <h3 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>Lokalizacja (wymagane dla reklam)</h3>
+            <div className="grid-3">
+              <div className="form-group">
+                <label>Latitude</label>
+                <input 
+                  type="text" 
+                  value={form.lat} 
+                  onChange={e => setForm({...form, lat: e.target.value})} 
+                  placeholder="np. 52.2297"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Longitude</label>
+                <input 
+                  type="text" 
+                  value={form.lng} 
+                  onChange={e => setForm({...form, lng: e.target.value})} 
+                  placeholder="np. 21.0122"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Adres</label>
+                <input 
+                  value={form.address} 
+                  onChange={e => setForm({...form, address: e.target.value})} 
+                  placeholder="ul. Przykładowa 1, Warszawa"
+                />
+              </div>
+            </div>
             <button type="submit" className="btn btn-primary">Zapisz</button>
           </form>
         </div>
@@ -109,7 +153,7 @@ export default function Restaurants() {
         ) : (
           <table>
             <thead>
-              <tr><th>RID</th><th>Nazwa</th><th>Slug</th><th>Region</th><th>IG</th><th>Kampania Meta</th><th>Akcje</th></tr>
+              <tr><th>RID</th><th>Nazwa</th><th>Slug</th><th>Lokalizacja</th><th>Region</th><th>IG</th><th>Kampania Meta</th><th>Akcje</th></tr>
             </thead>
             <tbody>
               {restaurants.map(r => (
@@ -117,6 +161,11 @@ export default function Restaurants() {
                   <td><strong>{r.rid}</strong></td>
                   <td>{r.name}</td>
                   <td><code>{r.slug || '-'}</code></td>
+                  <td>
+                    {r.location && r.location.lat && r.location.lng && !(r.location.lat === 0 && r.location.lng === 0)
+                      ? <span className="badge badge-success" title={`${r.location.lat}, ${r.location.lng}`}>✓</span>
+                      : <span className="badge badge-danger" title="Brak lokalizacji - wymagana do reklam">✗</span>}
+                  </td>
                   <td>{r.area}</td>
                   <td>
                     {r.instagram_account_id 

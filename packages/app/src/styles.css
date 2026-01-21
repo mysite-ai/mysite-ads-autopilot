@@ -221,6 +221,12 @@ button, .btn {
   gap: 20px;
 }
 
+.grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+}
+
 /* Loading */
 .loading {
   text-align: center;
