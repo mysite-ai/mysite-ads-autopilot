@@ -14,6 +14,7 @@ export interface CreateRestaurantDto {
   instagram_account_id: string;
   location: { lat: number; lng: number; address: string };
   meta_campaign_id?: string | null;
+  slug?: string;
 }
 
 @Injectable()
@@ -34,15 +35,20 @@ export class RestaurantsService {
   }
 
   async create(dto: CreateRestaurantDto): Promise<Restaurant> {
+    // Generate slug if not provided
+    const slug = dto.slug || this.generateSlug(dto.name);
+    
     const restaurant = await this.supabase.createRestaurant({
       ...dto,
+      slug,
       meta_campaign_id: dto.meta_campaign_id || null,
     });
 
     if (!dto.meta_campaign_id) {
       try {
-        const campaignId = await this.metaApi.createCampaign(dto.name);
-        this.logger.log(`Created campaign ${campaignId} for ${dto.name}`);
+        // Use new naming convention: {RID}-{slug}
+        const campaignId = await this.metaApi.createCampaign(restaurant.rid, restaurant.slug || slug);
+        this.logger.log(`Created campaign ${campaignId} for ${dto.name} (${restaurant.rid}-${restaurant.slug})`);
         return this.supabase.updateRestaurant(restaurant.id, { meta_campaign_id: campaignId });
       } catch (error) {
         this.logger.error(`Failed to create campaign: ${error}`);
@@ -67,7 +73,33 @@ export class RestaurantsService {
     if (!restaurant) throw new Error(`Restaurant not found: ${id}`);
     if (restaurant.meta_campaign_id) return restaurant;
 
-    const campaignId = await this.metaApi.createCampaign(restaurant.name);
+    // Generate slug if missing
+    const slug = restaurant.slug || this.generateSlug(restaurant.name);
+    if (!restaurant.slug) {
+      await this.supabase.updateRestaurant(id, { slug });
+    }
+
+    // Use new naming convention: {RID}-{slug}
+    const campaignId = await this.metaApi.createCampaign(restaurant.rid, slug);
+    this.logger.log(`Created campaign ${campaignId} for ${restaurant.name} (${restaurant.rid}-${slug})`);
     return this.supabase.updateRestaurant(id, { meta_campaign_id: campaignId });
+  }
+
+  /**
+   * Generate URL-safe slug from name
+   */
+  private generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[ąĄ]/g, 'a')
+      .replace(/[ęĘ]/g, 'e')
+      .replace(/[óÓ]/g, 'o')
+      .replace(/[śŚ]/g, 's')
+      .replace(/[łŁ]/g, 'l')
+      .replace(/[żŻźŹ]/g, 'z')
+      .replace(/[ćĆ]/g, 'c')
+      .replace(/[ńŃ]/g, 'n')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 }
